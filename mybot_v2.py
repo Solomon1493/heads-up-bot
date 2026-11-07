@@ -62,6 +62,7 @@ if os.path.exists(_PRIORS_FILE):      # written by the Databricks job; replaces 
         pass                          # keep the built-in values; never fail at import
 
 # ===== Fixed constants (documented, not tuned) =====
+KEY_MODE = "blend"                  # how to rank opponent hands: current / final / blend
 TRAP_SHARE = 0.05                     # share of a checking range that is a slow-played big hand
 NEAR_EQUAL_BB = 1.0                   # "near-equal" actions for mixing: within 1 big blind
 MIN_WIDTH = 0.05                      # never model a range narrower than 5% of hands
@@ -220,12 +221,10 @@ def _samples(hole, board, pairs, rng, need_keys):
             them = score_masks(ohm, bm, table)
             o = 1.0 if me > them else 0.5 if me == them else 0.0
             if not need_keys:
-                key = 0
-            elif cur_bm:
-                key = score_masks(ohm, cur_bm, table)       # their hand on the board as it is now
-            else:
-                key = preflop.percentile(opp)
-            out.append((o, key))
+                out.append((o, 0, 0))
+                continue
+            now = score_masks(ohm, cur_bm, table) if cur_bm else preflop.percentile(opp)
+            out.append((o, now, them))      # their hand now, and once the board completes
     return out
 
 
@@ -235,17 +234,20 @@ def _equity(samples, lo, hi, out):
         return 0.5
     n = len(samples)
     if lo <= 0.0 and hi >= 1.0:
-        return sum(o for o, _ in samples) / n
-    keys = sorted(k for _, k in samples)
+        return sum(x[0] for x in samples) / n
     w = hi - lo
     beta = out * w / ((1.0 - w) * (1.0 - out)) if 0 < out < 1 and w < 1 else 0.0
+    now_sorted = sorted(x[1] for x in samples)
+    fin_sorted = sorted(x[2] for x in samples)
     num = den = 0.0
-    for o, k in samples:
-        p = bisect.bisect_left(keys, k) / n
+    for o, now, fin in samples:
+        p_now = bisect.bisect_left(now_sorted, now) / n
+        p_fin = bisect.bisect_left(fin_sorted, fin) / n
+        p = {"current": p_now, "final": p_fin}.get(KEY_MODE, (p_now + p_fin) / 2)
         wt = 1.0 if lo <= p <= hi else beta
         num += wt * o
         den += wt
-    return num / den if den else sum(o for o, _ in samples) / n
+    return num / den if den else sum(x[0] for x in samples) / n
 
 
 def _get_samples(obs, memory, h):
