@@ -39,11 +39,14 @@ from game import Action, AgentConfig, HandResult, Observation, Street
 warmup()
 
 # rename as your team/bot's name
-PARTICIPANT = "TotallyAwesomeDatathonParticipant"
-AGENT_NAME = "JustAsAwesomeAgent"
+PARTICIPANT = "Solomon Moon, Zach Strong, Anish Yerramsetti"
+AGENT_NAME = "SALZ"
 
 
 # ===== YOUR CODE HERE =====
+
+# All strategy lives in mybot.py; these functions only delegate to it.
+import mybot
 
 def new_half(config: AgentConfig, memory: dict) -> None:
     """Called at the start of each half-match (1000 hands).
@@ -55,7 +58,7 @@ def new_half(config: AgentConfig, memory: dict) -> None:
     In the tournament, each half runs in a brand-new copy of your server,
     so nothing you learn in one half carries over to the other half.
     """
-    memory["hands_played"] = 0
+    mybot.new_half(config, memory)
 
 
 def choose_action(obs: Observation, memory: dict) -> Action:
@@ -86,11 +89,7 @@ def choose_action(obs: Observation, memory: dict) -> Action:
     scores your hand (higher is better).
     """
 
-    # Simple example of a heuristic bot, which just checks when it is of no cost, otherwise folds
-    # Replace this with your strategy!
-    if obs.to_call == 0:
-        return Action.CHECK_CALL
-    return Action.FOLD
+    return mybot.choose_action(obs, memory)
 
 
 def on_hand_end(result: HandResult, memory: dict) -> None:
@@ -104,7 +103,7 @@ def on_hand_end(result: HandResult, memory: dict) -> None:
     went_to_showdown, board (cards revealed), opp_hole (opponent's cards,
     only after a showdown, else None), winner ('me', 'opp' or 'split').
     """
-    memory["hands_played"] += 1
+    mybot.on_hand_end(result, memory)
 
 # ===== END OF YOUR CODE =====
 
