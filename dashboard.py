@@ -365,7 +365,10 @@ def api_scoreboard():
                         "field": r["field"], "health": r.get("health", {})})
         else:
             out.append({"bot": bot, "timestamp": None})
-    return out
+    import families
+    fam = families.families()
+    return {"bots": out, "family_of": {o: k for k, v in fam.items() for o in v},
+            "family_names": families.FAMILY_NAMES, "weights": families.FIELD_WEIGHT}
 
 
 @app.post("/api/scoreboard/run")

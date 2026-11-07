@@ -63,7 +63,22 @@ def exact_equity(me, opp, board_known):
 def _export_match(job):
     run_id, hero, opp, seed, deals = job
     match_id = f"{run_id}:{opp}:{seed}"
-    res, _ = fastarena.play(hero, opp, seed, deals, keep_logs=True)
+    # If the hero exposes a TRACE hook (mybot_v2), record its own estimates for calibration.
+    trace, orig = [], fastarena.load_module
+    hero_path = os.path.abspath(fastarena.resolve(hero))
+
+    def _load(path):
+        mod = orig(path)
+        if os.path.abspath(path) == hero_path and hasattr(mod, "TRACE"):
+            mod.TRACE = trace
+        return mod
+    fastarena.load_module = _load
+    try:
+        res, _ = fastarena.play(hero, opp, seed, deals, keep_logs=True)
+    finally:
+        fastarena.load_module = orig
+    trace = [t for t in trace if "error" not in t]
+    t_i = 0
     stats = res.agent_stats
     match = {
         "run_id": run_id, "match_id": match_id, "hero": hero, "opponent": opp, "seed": seed,
@@ -98,7 +113,13 @@ def _export_match(job):
                 if key not in eq_cache:
                     nb = STREET_BOARD[street]
                     eq_cache[key] = None if nb == 0 else exact_equity(holes[s], holes[1 - s], board[:nb])
-                decisions.append({
+                model = {}
+                if s == hero_seat and t_i < len(trace):
+                    t = trace[t_i]; t_i += 1
+                    model = {"model_equity": t.get("equity_vs_range"), "model_equity_random": t.get("equity_vs_random"),
+                             "model_range_top": t.get("range_top"), "model_iters": t.get("iters"),
+                             "model_p_fold": t.get("posterior", {}).get(street, [None])[0]}
+                decisions.append({**model, 
                     "run_id": run_id, "match_id": match_id, "hand_id": hand_id,
                     "hero": hero, "opponent": opp, "half": half, "deal_index": h["deal_index"],
                     "seq": i, "actor": "hero" if s == hero_seat else "opponent",

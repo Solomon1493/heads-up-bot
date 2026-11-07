@@ -9,8 +9,11 @@ logging experiments). They share one working tree, so they must not edit the sam
 ## Who edits what
 | Files | Owner |
 |---|---|
-| `mybot.py`, `mybot_v2.py`, `botlib/`, `fastarena.py`, `dashboard.py`, `tools/trace_v2.py`, `databricks/` | Claude Code |
-| `tune.py`, `data/` (running experiments, exports, syncs) | Antigravity |
+| `mybot.py`, `mybot_v2.py`, `botlib/`, `fastarena.py`, `dashboard.py`, `dashboard_ui/`, `tools/`, `databricks/`, `families.py`, `zoo/`, `tune.py` | Claude Code |
+| Running experiments, exports, syncs (`tune.py run/sweep`, `databricks/*.py`), writing to `data/` | Antigravity |
+
+Antigravity runs the tools; it does not edit them. If a tool needs a change, describe it to
+the human. The training loop is in STRATEGY.md, "How to train".
 | `design/PROJECT.design.md` | the human; agents follow it for any UI |
 | `DEFAULT_PARAMS` values in `mybot.py` | Change only from a `tune.py sweep` RECOMMENDED result, or when a human asks |
 | New opponents in `zoo/` | Either; say so in your report |

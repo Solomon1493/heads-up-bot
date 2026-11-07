@@ -242,6 +242,7 @@ def play(spec1, spec2, seed, deals, keep_logs=False, params=None):
 def _summary(spec1, spec2, seed, deals, params=None):
     res, loads = play(spec1, spec2, seed, deals, params=params)
     out = {"a": spec1, "b": spec2, "seed": seed, "mean": res.mean_bb, "ci": res.ci,
+           "paired": list(res.paired_bb),
            "verdict": res.verdict, "points": res.points, "load": loads}
     for key, spec in (("agent1", spec1), ("agent2", spec2)):
         halves = res.agent_stats[key]

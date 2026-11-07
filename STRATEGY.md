@@ -69,6 +69,26 @@ position. Freeze any number whose ±20% change doesn't move points beyond noise.
 4. `mybot_v2.py` beside v1. Promote it into `agent.py` only by the rule above.
 5. Tune the 2 knobs last, with the full protocol.
 
+## How to train (the loop)
+Everything below goes through the shared run queue, so runs never overlap.
+1. **Measure** both bots on the full field: dashboard "Re-measure both bots", or
+   `python tune.py run --bot mybot_v2 --seeds 2`.
+2. **Find the leak**: `python databricks/export.py --hero mybot_v2 --seeds 2` (hindsight
+   equity plus v2's own estimates, so calibration is visible), then the notebook or a query.
+3. **Fix structure** in `mybot_v2.py` (Claude), and re-check calibration and the scoreboard.
+4. **Tune the 2 knobs** only when structure is stable:
+   `python tune.py sweep --bot mybot_v2 --trials 20 --seeds 2 --deals 1000`.
+   It tunes on families A + B, then checks finalists on C + D + E with fresh deals; it
+   recommends a change only if it beats the current settings by more than 2 standard errors on
+   training, gains on held-out, and no held-out family gets significantly worse.
+5. **Promote** v2 into `agent.py` only when its weighted score beats v1's and its worst family
+   is no worse (dashboard scoreboard).
+
+Measurement guarantees: v2 is deterministic (fixed samples per decision; it scales down only
+if it falls behind the time budget) and uses common random numbers (the same spot always gets
+the same simulations), so two settings are compared on identical deals and simulations; noise
+is computed deal by deal.
+
 ## Changes
 (date, what changed, the measurement that justified it)
 
@@ -80,3 +100,19 @@ position. Freeze any number whose ±20% change doesn't move points beyond noise.
 - **2026-11-07: first v2 field result: 5.25 / 8 vs v1's 7.00 / 8** (4 seeds x 1000 deals,
   same deals). v1 stays in `agent.py`. Weakest: `tight_bot` (-1.5), `half`/`pot` (+1.3 vs +5.9).
   Diagnose with the dashboard's model view (`tools/trace_v2.py`).
+- **2026-11-07: four structural fixes to v2, from a same-deals comparison with v1 and a
+  calibration check of v2's own estimates against true equity.** (1) A re-raise was assumed to
+  get folds like a first bet: predicted 33% vs actual 1% against tight_bot; now a separate
+  fold-to-re-raise rate (priors 7/13/11/18% by street). (2) The range model ignored weakness:
+  a check now caps the range, a call keeps the middle; checked-to equity error went from
+  -9 points to about -3. (3) Median 26 simulations per decision, now 64 plus reuse within a
+  betting round (each board scored once, tested against 4 hands). (4) Removed the hand-picked
+  85% equity-realization constant. Field: 5.25 -> 6.50 / 8 (v1: 7.00).
+- **2026-11-07: v2 made deterministic, with common random numbers.** Same settings now play
+  identical hands; paired noise is about 1/3 lower per opponent (0.75 vs 1.11 bb/deal at 500
+  deals). Opponent families A-E added (families.py): 12 generated styles incl. stack-off
+  players, 3 all-in bots, 2 exam bots, an exploiter, v1 as league.
+- **Known gap for training:** v2 still overestimates its equity when tight or equity-style
+  bots bet (33% modeled vs 14% true against tight_bot): they bet on hand potential, which
+  "current made hand" ranking undercounts. Candidate fix: learn a per-situation correction
+  from exported data (a population estimate, not a tuned knob).

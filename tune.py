@@ -38,11 +38,8 @@ os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(SNAPSHOTS_DIR, exist_ok=True)
 
 # ===== OPPONENT SPLIT =====
-# The sweep tunes ONLY against these. Every other zoo/baseline bot is held out and used
-# to check that a change generalizes. New bots dropped into zoo/ are held out by default,
-# which is what you want: they are opponents the tuner has never seen.
-# Keep at least one strong opponent on each side, or the check proves little.
-TRAIN_OPPONENTS = ["aggro_bot", "equity_bot", "half", "random", "station"]
+# Defined in families.py (STRATEGY.md): tune on families A + B, check on C + D + E.
+# New bots dropped into zoo/ are exam opponents (family C) unless families.py says otherwise.
 
 # Per-opponent bb/deal is capped at this value when scoring. Past ~3 bb/deal a win is
 # already certain, so extra margin vs weak bots earns no points and must not drown out
@@ -51,12 +48,9 @@ BB_CAP = 3.0
 
 
 def split_opponents(bot="mybot"):
-    import fastarena
-    every = [o for o in fastarena.zoo_specs() if o != bot]
-    missing = sorted(set(TRAIN_OPPONENTS) - set(every))
-    if missing:
-        raise SystemExit(f"TRAIN_OPPONENTS lists unknown bots: {missing}")
-    return [o for o in every if o in TRAIN_OPPONENTS], [o for o in every if o not in TRAIN_OPPONENTS]
+    """Train = families A + B, held out = C + D + E (families.py, STRATEGY.md)."""
+    import families
+    return families.split(bot)
 
 
 def _git_info():
@@ -125,10 +119,33 @@ def _extract_params(source):
 
 def run_field(bot="mybot", seeds=2, deals=1000, workers=None, params=None):
     """Run a field evaluation and return parsed results."""
-    import fastarena
-    opponents = [o for o in fastarena.zoo_specs() if o != bot]
+    import families
+    opponents = families.all_opponents(bot)
     return run_field_subset(bot=bot, opponents=opponents, seeds=seeds, deals=deals,
                             workers=workers, params=params)
+
+
+def _family_summary(opponent_results):
+    """Points per opponent family, and STRATEGY.md's weighted share of the available points."""
+    import families
+    out, num, den = {}, 0.0, 0.0
+    for fam, members in families.families().items():
+        rs = [opponent_results[o] for o in members if o in opponent_results]
+        if not rs:
+            continue
+        pts = sum(r["points"] for r in rs)
+        out[fam] = {"points": round(pts, 2), "max": len(rs),
+                    "worst_bb": round(min(r["mean_bb_deal"] for r in rs), 3)}
+        w = families.FIELD_WEIGHT.get(fam, 0.0)
+        num += w * pts / len(rs)
+        den += w
+    out["weighted_share"] = round(num / den, 4) if den else None
+    return out
+
+
+def _public(field):
+    """Field results without the in-memory per-deal arrays (what goes into the log)."""
+    return {k: v for k, v in field.items() if k != "_paired"}
 
 
 def run_field_subset(bot="mybot", opponents=None, seeds=2, deals=1000, workers=None,
@@ -154,6 +171,7 @@ def run_field_subset(bot="mybot", opponents=None, seeds=2, deals=1000, workers=N
     opponent_results = {}
     total_pts = 0.0
     score_bb, score_var = 0.0, 0.0
+    paired = {}
     for opp in opponents:
         rs = [r for r in results if r["b"] == opp]
         if not rs:
@@ -174,6 +192,7 @@ def run_field_subset(bot="mybot", opponents=None, seeds=2, deals=1000, workers=N
         score_bb += min(mean_bb, BB_CAP)
         score_var += se ** 2
 
+        paired[opp] = [r["paired"] for r in sorted(rs, key=lambda r: r["seed"])]
         opponent_results[opp] = {
             "wins": w, "chops": c, "losses": l,
             "points": pts, "mean_bb_deal": round(mean_bb, 4),
@@ -187,7 +206,9 @@ def run_field_subset(bot="mybot", opponents=None, seeds=2, deals=1000, workers=N
         "max_points": len(opponents),
         "score_bb": round(score_bb, 4),             # sum of per-opponent bb/deal, capped at BB_CAP
         "score_bb_se": round(score_var ** 0.5, 4),  # its standard error
+        "families": _family_summary(opponent_results),
         "opponents": opponent_results,
+        "_paired": paired,                           # per-deal results; stripped before logging
         "seeds": seeds,
         "deals": deals,
     }
@@ -225,7 +246,7 @@ def run_experiment(tag="", bot="mybot", seeds=2, deals=1000, workers=None, param
         "params_overridden": dict(params_override or {}),   # values that differ from mybot.py on disk
         "git": git,
         "source_lines": len(source.splitlines()),
-        "field": field_results,
+        "field": _public(field_results),
         "elapsed_seconds": elapsed,
         "status": "ok",
     }
@@ -299,7 +320,7 @@ def _build_experiment_record(tag, field_results, params, bot="mybot", extra=None
         "params": params,
         "git": git,
         "source_lines": len(source.splitlines()),
-        "field": field_results,
+        "field": _public(field_results),
         "elapsed_seconds": 0,
         "status": "ok",
     }
@@ -375,15 +396,44 @@ def cmd_history(args):
     print(f"\nTotal: {len(records)} experiments")
 
 
-def _delta(cand, base):
-    """Candidate minus baseline score (capped bb/deal), with a conservative noise estimate.
+def _paired_se(cand, base, opponents=None):
+    """Noise of (candidate - baseline) from deal-by-deal differences on the same deals.
+    Card luck cancels, so this is far smaller than treating the runs as independent."""
+    var = 0.0
+    for opp in (opponents or cand["opponents"].keys()):
+        a, b = cand.get("_paired", {}).get(opp), base.get("_paired", {}).get(opp)
+        if not a or not b or len(a) != len(b):
+            return None
+        per_seed = []
+        for xa, xb in zip(a, b):
+            diffs = [p - q for p, q in zip(xa, xb)]
+            n = len(diffs)
+            m = sum(diffs) / n
+            per_seed.append(sum((x - m) ** 2 for x in diffs) / (n - 1) / n)
+        var += sum(per_seed) / len(per_seed) ** 2      # variance of the mean over seeds
+    return var ** 0.5
 
-    Both runs use the same deals, which cancels most card luck, so the true noise is
-    smaller than this; treating the runs as independent keeps us on the safe side.
-    """
-    d = cand["score_bb"] - base["score_bb"]
-    se = (cand["score_bb_se"] ** 2 + base["score_bb_se"] ** 2) ** 0.5
+
+def _delta(cand, base, opponents=None):
+    """Candidate minus baseline score (capped bb/deal) and its noise (paired when possible)."""
+    opps = opponents or list(cand["opponents"].keys())
+    d = sum(min(cand["opponents"][o]["mean_bb_deal"], BB_CAP) - min(base["opponents"][o]["mean_bb_deal"], BB_CAP)
+            for o in opps)
+    se = _paired_se(cand, base, opps)
+    if se is None:                                          # fall back to the independent estimate
+        se = (cand["score_bb_se"] ** 2 + base["score_bb_se"] ** 2) ** 0.5
     return d, se
+
+
+def _family_deltas(cand, base):
+    """Per held-out family: (delta, noise). Used for the worst-family rule."""
+    import families
+    out = {}
+    for fam, members in families.families().items():
+        opps = [o for o in members if o in cand["opponents"] and o in base["opponents"]]
+        if opps:
+            out[fam] = _delta(cand, base, opps)
+    return out
 
 
 def _healthy(field_results):
@@ -413,7 +463,7 @@ def cmd_sweep(args):
         return
     train_opps, holdout_opps = split_opponents(bot=bot)
     if not holdout_opps:
-        print("Every opponent is in TRAIN_OPPONENTS, so nothing is held out. Edit the split in tune.py.")
+        print("Nothing is held out. Check the families in families.py.")
         return
 
     rng = random.Random(args.sweep_seed)
@@ -465,7 +515,12 @@ def cmd_sweep(args):
     for i, (d, se, cand, _) in enumerate(finalists):
         res = run_field_subset(bot, holdout_opps, params=cand, **hkw)
         hd, hse = _delta(res, base_hold)
-        ok = hd > 0 and _healthy(res)
+        fams = _family_deltas(res, base_hold)
+        worst = min(fams.items(), key=lambda kv: kv[1][0] / max(kv[1][1], 1e-9)) if fams else None
+        no_family_worse = all(fd > -2 * fse for fd, fse in fams.values())
+        ok = hd > 0 and no_family_worse and _healthy(res)
+        for fam, (fd, fse) in sorted(fams.items()):
+            print(f"      family {fam}: {fd:+.3f} (noise +/-{2 * fse:.3f})")
         _log(_build_experiment_record(f"sweep-finalist-{i}-holdout-{bot}", res, cand, bot=bot, extra={
             "opponent_set": "holdout", "train_delta": round(d, 4),
             "delta_vs_baseline": round(hd, 4), "delta_se": round(hse, 4)}))

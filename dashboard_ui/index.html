@@ -61,6 +61,7 @@ header .spacer { flex: 1; }
 .total .pts small { font-size: 15px; color: var(--muted); font-weight: 400; }
 .total .when { color: var(--muted); font-size: 12px; }
 .board table td .w { font-size: 12px; margin-left: 6px; }
+.board tr.fam td { background: var(--base); border-bottom: 1px solid var(--rule); }
 .queue { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .queue .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--prior); }
 .queue.busy .dot { background: var(--cobalt); }
@@ -329,6 +330,15 @@ function why(d) {
   return `Raising wins the pot right away whenever they fold (the bot expects that ${pct(post[0])} of the time on the ${STREET[d.street]}), and it still wins ${pct(d.equity_vs_range)} when they call.`;
 }
 const chev = `<svg class="chev" width="14" height="28" viewBox="0 0 14 28" aria-hidden="true"><path d="M3 3 L11 14 L3 25" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
+const rangeLo = (d) => d.range_lo ?? 1 - d.range_top;
+const rangeHi = (d) => d.range_hi ?? 1;
+function rangeText(d) {
+  const lo = rangeLo(d), hi = rangeHi(d);
+  if (lo <= 0 && hi >= 1) return "any hand";
+  if (hi >= 0.999) return `top ${pct(1 - lo)}`;
+  if (lo <= 0.001) return `bottom ${pct(hi)}`;
+  return `${pct(lo)} to ${pct(hi)}`;
+}
 function belief(label, prior, live) {
   return `<div class="belief"><div class="row"><span>${label}</span><span class="val">${pct(live)}</span></div>
     <div class="gauge"><div class="t"></div><div class="p" style="left:${prior * 100}%"></div><div class="d" style="left:${live * 100}%"></div></div>
@@ -359,9 +369,10 @@ function drawDecision(d) {
     </div>${chev}
     <div class="stage"><h3><b>2</b>What it believes about ${esc(m.opponent)}, ${STREET[d.street]}</h3>
       ${belief("Folds to a bet", pri[0], post[0])}${belief("Bets when checked to", pri[1], post[1])}${belief("Raises a bet", pri[2], post[2])}
-      <div class="mini"><div class="row"><span>Their likely hands</span><span class="num">top ${pct(d.range_top)}</span></div>
-        <div class="bar-track"><div class="bar-fill cobalt" style="left:${(1 - d.range_top) * 100}%;width:${d.range_top * 100}%"></div></div>
-        <div class="prior-note muted" style="font-size:12px">${pct(d.bluff_share)} of their bets modeled as bluffs</div></div>
+      <div class="mini"><div class="row"><span>Their likely hands</span><span class="num">${rangeText(d)}</span></div>
+        <div class="bar-track"><div class="bar-fill cobalt" style="left:${rangeLo(d) * 100}%;width:${(rangeHi(d) - rangeLo(d)) * 100}%"></div></div>
+        <div class="prior-note muted" style="font-size:12px;display:flex;justify-content:space-between"><span>weakest</span><span>strongest</span></div>
+        <div class="prior-note muted" style="font-size:12px;margin-top:4px">${pct(d.bluff_share)} of their bets modeled as bluffs</div></div>
     </div>${chev}
     <div class="stage"><h3><b>3</b>Its chance to win</h3>
       <div class="equity-big">${pct(d.equity_vs_range)}</div>
@@ -563,20 +574,28 @@ $("p-save").onclick = async () => {
 const BOT_LABEL = { mybot: "v1, in agent.py", mybot_v2: "v2, in development" };
 const verdictOf = (o) => o.wins === o.wins + o.chops + o.losses ? "win" : (o.losses ? (o.wins ? "mixed" : "loss") : (o.wins ? "mixed" : "chop"));
 async function loadScoreboard() {
-  const rows = await (await fetch("/api/scoreboard")).json();
-  $("totals").innerHTML = rows.map((r) => r.timestamp ? `<div class="total"><div class="name">${BOT_LABEL[r.bot] || r.bot}</div>
-      <div class="pts">${r.field.total_points.toFixed(2)} <small>of ${r.field.max_points} points</small></div>
-      <div class="when">${r.timestamp.slice(5, 16).replace("T", " ")} UTC, ${r.field.seeds} seeds x ${r.field.deals} deals${r.health.safe === false ? ', <span class="state-loss">health problem</span>' : ""}</div></div>`
-    : `<div class="total"><div class="name">${BOT_LABEL[r.bot] || r.bot}</div><div class="pts"><small>not measured yet</small></div></div>`).join("");
+  const sb = await (await fetch("/api/scoreboard")).json();
+  const rows = sb.bots, famOf = sb.family_of, famName = sb.family_names;
+  $("totals").innerHTML = rows.map((r) => {
+    if (!r.timestamp) return `<div class="total"><div class="name">${BOT_LABEL[r.bot] || r.bot}</div><div class="pts"><small>not measured yet</small></div></div>`;
+    const share = r.field.families?.weighted_share;
+    return `<div class="total"><div class="name">${BOT_LABEL[r.bot] || r.bot}</div>
+      <div class="pts">${share != null ? pct(share) : r.field.total_points.toFixed(2)} <small>${share != null ? "weighted score" : "points"}</small></div>
+      <div class="when">${r.field.total_points.toFixed(2)} of ${r.field.max_points} points, ${r.timestamp.slice(5, 16).replace("T", " ")} UTC, ${r.field.seeds} seeds x ${r.field.deals} deals${r.health.safe === false ? ', <span class="state-loss">health problem</span>' : ""}</div></div>`;
+  }).join("");
   const have = rows.filter((r) => r.timestamp);
   if (!have.length) { $("board-table").innerHTML = '<div class="empty">No full-field runs yet. Press Re-measure both bots.</div>'; return; }
   const opps = [...new Set(have.flatMap((r) => Object.keys(r.field.opponents)))];
+  const groups = {};
+  opps.forEach((o) => { const f = famOf[o] || "C"; (groups[f] = groups[f] || []).push(o); });
   const cell = (r, o) => { const x = r.timestamp && r.field.opponents[o]; if (!x) return '<td class="num muted">-</td>';
     const n = x.wins + x.chops + x.losses, word = x.wins === n ? "win" : x.losses === n ? "loss" : x.chops === n ? "chop" : `${x.wins}W ${x.chops}C ${x.losses}L`;
     const cls = x.wins === n ? "state-gain" : x.losses === n ? "state-loss" : "muted";
     return `<td class="num">${signed(x.mean_bb_deal, 2)}<span class="w ${cls}">${word}</span></td>`; };
-  $("board-table").innerHTML = `<table><thead><tr><th>Opponent</th>${rows.map((r) => `<th class="num">${BOT_LABEL[r.bot] || r.bot}, bb/deal</th>`).join("")}</tr></thead>
-    <tbody>${opps.map((o) => `<tr><td>${esc(o)}</td>${rows.map((r) => cell(r, o)).join("")}</tr>`).join("")}</tbody></table>`;
+  const famCell = (r, f) => { const x = r.timestamp && r.field.families?.[f]; return x ? `<td class="num"><b>${x.points.toFixed(1)} of ${x.max}</b></td>` : '<td class="num muted">-</td>'; };
+  $("board-table").innerHTML = `<table><thead><tr><th>Opponent</th>${rows.map((r) => `<th class="num">${BOT_LABEL[r.bot] || r.bot}</th>`).join("")}</tr></thead><tbody>${
+    Object.keys(groups).sort().map((f) => `<tr class="fam"><td><b>${f}. ${esc(famName[f] || "")}</b> <span class="muted">weight ${pct(sb.weights[f] || 0)}</span></td>${rows.map((r) => famCell(r, f)).join("")}</tr>` +
+      groups[f].map((o) => `<tr><td style="padding-left:22px">${esc(o)}</td>${rows.map((r) => cell(r, o)).join("")}</tr>`).join("")).join("")}</tbody></table>`;
 }
 async function pollQueue() {
   try {
