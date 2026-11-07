@@ -22,6 +22,7 @@ judge's 1 ms grace, but the tournament machine may be slower: keep a wide time m
 import argparse
 import glob
 import importlib.util
+import json
 import os
 import sys
 import time
@@ -71,6 +72,21 @@ def load_module(path):
     return mod
 
 
+def apply_params(mod, params):
+    """Override a bot's live PARAMS dict (used by tune.py and --params).
+
+    Strict on purpose: a typo or a bot with no PARAMS must fail loudly, otherwise a
+    sweep would silently play the default bot and report meaningless numbers.
+    """
+    live = getattr(mod, "PARAMS", None)
+    if not isinstance(live, dict):
+        raise ValueError(f"{getattr(mod, '__file__', mod)} has no PARAMS dict, cannot apply overrides")
+    unknown = sorted(set(params) - set(live))
+    if unknown:
+        raise ValueError(f"unknown parameter(s) {unknown}; valid: {sorted(live)}")
+    live.update(params)
+
+
 def _wire_answer(raw):
     """Mirror agent.py's plumbing: how a returned value is sent to the judge."""
     if isinstance(raw, Action):
@@ -83,8 +99,9 @@ def _wire_answer(raw):
 class InProcessAgent:
     """Drop-in replacement for judge_engine.HttpAgentHandle that calls a module directly."""
 
-    def __init__(self, path, label, config=None):
+    def __init__(self, path, label, config=None, params=None):
         self.path, self.label = path, label
+        self.params = params
         self.config = config or AgentConfig()
         self.stats = J.AgentStats()
         self._pending = []
@@ -162,6 +179,8 @@ class InProcessAgent:
             self._record_error(f"import failed: {type(exc).__name__}: {exc}\n{traceback.format_exc()}")
             return
         self.load_seconds = max(self.load_seconds, time.perf_counter() - t0)
+        if self.params:
+            apply_params(self.mod, self.params)   # fresh module each half, so re-apply each half
         self.memory = {}
         cfg = AgentConfig.from_dict(self.config.to_dict())
         ok, _, _ = self._timed("new_half", lambda: self.mod.new_half(cfg, self.memory))
@@ -210,8 +229,9 @@ class InProcessAgent:
 
 
 # ----------------------------------------------------------------------------- matches
-def play(spec1, spec2, seed, deals, keep_logs=False):
-    a1 = InProcessAgent(resolve(spec1), spec1)
+def play(spec1, spec2, seed, deals, keep_logs=False, params=None):
+    """`params` overrides spec1's PARAMS (spec1 only)."""
+    a1 = InProcessAgent(resolve(spec1), spec1, params=params)
     a2 = InProcessAgent(resolve(spec2), spec2)
     h1 = J.play_half(a1, a2, seed, 1, deals, keep_logs)
     h2 = J.play_half(a1, a2, seed, 2, deals, keep_logs)
@@ -219,8 +239,8 @@ def play(spec1, spec2, seed, deals, keep_logs=False):
     return res, (a1.load_seconds, a2.load_seconds)
 
 
-def _summary(spec1, spec2, seed, deals):
-    res, loads = play(spec1, spec2, seed, deals)
+def _summary(spec1, spec2, seed, deals, params=None):
+    res, loads = play(spec1, spec2, seed, deals, params=params)
     out = {"a": spec1, "b": spec2, "seed": seed, "mean": res.mean_bb, "ci": res.ci,
            "verdict": res.verdict, "points": res.points, "load": loads}
     for key, spec in (("agent1", spec1), ("agent2", spec2)):
@@ -275,7 +295,8 @@ def _health_lines(results):
 
 
 def cmd_match(a):
-    res, loads = play(a.bot1, a.bot2, a.seed, a.deals, keep_logs=bool(a.json))
+    params = json.loads(a.params) if a.params else None
+    res, loads = play(a.bot1, a.bot2, a.seed, a.deals, keep_logs=bool(a.json), params=params)
     print(J.format_report(res))
     for spec, s in zip((a.bot1, a.bot2), loads):
         if s > 10:
@@ -368,6 +389,7 @@ def main(argv=None):
     m.add_argument("bot2")
     m.add_argument("--seed", default="7")
     m.add_argument("--json", help="save the full result, including every hand")
+    m.add_argument("--params", help='JSON overrides for bot1\'s PARAMS, e.g. \'{"pf_call": 0.5}\'')
     m.set_defaults(fn=cmd_match)
 
     f = sub.add_parser("field", parents=[common], help="one bot vs every zoo and baseline bot")
