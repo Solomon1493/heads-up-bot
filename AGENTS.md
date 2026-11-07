@@ -1,13 +1,17 @@
 # Rules for AI agents working in this repo
 
+**Read [STRATEGY.md](STRATEGY.md) first.** It is the settled design. Build toward it; do not
+invent new tuning knobs or thresholds. Propose changes to it only with a measurement.
+
 Two agents work here: **Claude Code** (development) and **Antigravity** (running and
 logging experiments). They share one working tree, so they must not edit the same file.
 
 ## Who edits what
 | Files | Owner |
 |---|---|
-| `mybot.py` strategy logic, `botlib/`, `fastarena.py` | Claude Code |
-| `tune.py`, `dashboard.py`, `data/` | Antigravity |
+| `mybot.py`, `mybot_v2.py`, `botlib/`, `fastarena.py`, `dashboard.py`, `tools/trace_v2.py`, `databricks/` | Claude Code |
+| `tune.py`, `data/` (running experiments, exports, syncs) | Antigravity |
+| `design/PROJECT.design.md` | the human; agents follow it for any UI |
 | `DEFAULT_PARAMS` values in `mybot.py` | Change only from a `tune.py sweep` RECOMMENDED result, or when a human asks |
 | New opponents in `zoo/` | Either; say so in your report |
 
@@ -22,6 +26,13 @@ outside the `YOUR CODE HERE` block. The tournament uses its own copies of the fi
   Tests override parameters in-process through `fastarena.apply_params`.
 - Every value in `DEFAULT_PARAMS` must be read by the code (`P["name"]`). No dead parameters.
 - Never let an exception escape `choose_action`, `new_half` or `on_hand_end`.
+
+## Running matches
+- One measurement at a time. `tune.py run/sweep`, `tools/trace_v2.py` and dashboard buttons all
+  take the shared queue (`tools/runlock.py`) and wait their turn. Do not bypass it: two runs at
+  once make both bots simulate less, so both results come out wrong.
+- The sweep's noise guard stays: a candidate must beat the current params by more than
+  2 standard errors. Do not loosen it to `> 0`; with noise near +/-2.6 that recommends luck.
 
 ## Reporting results
 - Report results on deals the change was not tuned on: `python fastarena.py field mybot --seeds 4`.

@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bot lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+:root {
+  --base: #E8EDF1; --surface: #F6F8FA; --ink: #12233A; --muted: #50627A; --rule: #C9D2DB;
+  --cobalt: #2747B8; --prior: #6B7A8D; --gain: #1F7A57; --loss: #C24A2C; --track: #D8E0E8;
+  --card-bg: #FFFFFF; --card-ink: #12233A; --card-red: #B8323E; --card-edge: #C9D2DB;
+  --ease: 180ms ease-out;
+  font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  font-variant-numeric: tabular-nums; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --base: #0E1824; --surface: #152230; --ink: #DCE5EE; --muted: #8EA0B3; --rule: #2A3A4B;
+    --cobalt: #6C84F0; --prior: #7F90A4; --gain: #3FA37A; --loss: #E0704F; --track: #24354A;
+    --card-bg: #E9EEF3; --card-edge: #E9EEF3; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --base: #0E1824; --surface: #152230; --ink: #DCE5EE; --muted: #8EA0B3; --rule: #2A3A4B;
+  --cobalt: #6C84F0; --prior: #7F90A4; --gain: #3FA37A; --loss: #E0704F; --track: #24354A;
+  --card-bg: #E9EEF3; --card-edge: #E9EEF3; color-scheme: dark;
+}
+@media (prefers-reduced-motion: reduce) { :root { --ease: 0ms; } }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--base); color: var(--ink); font-size: 14px; line-height: 1.5; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 0 28px; }
+@media (max-width: 640px) { .wrap { padding: 0 16px; } }
+.muted { color: var(--muted); }
+
+/* header */
+header { padding: 18px 0 10px; }
+header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+header .spacer { flex: 1; }
+.seg { display: inline-flex; background: var(--track); border-radius: 8px; padding: 2px; gap: 2px; flex-wrap: wrap; }
+.seg button { background: none; border: 0; padding: 5px 11px; border-radius: 6px; cursor: pointer; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; }
+.btn { border: 1px solid var(--rule); background: var(--surface); border-radius: 8px; padding: 6px 14px; cursor: pointer; }
+.btn.primary { background: var(--cobalt); border-color: var(--cobalt); color: #fff; font-weight: 600; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+
+/* scoreboard + queue */
+.board { background: var(--surface); border-radius: 14px; padding: 22px 30px 18px; margin-top: 8px; }
+.board-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 28px; margin-bottom: 14px; }
+.board-head h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.board-head .spacer { flex: 1; }
+.totals { display: flex; gap: 40px; flex-wrap: wrap; margin: 4px 0 14px; }
+.total .name { color: var(--muted); font-size: 13px; }
+.total .pts { font-size: 30px; font-weight: 600; line-height: 1.1; }
+.total .pts small { font-size: 15px; color: var(--muted); font-weight: 400; }
+.total .when { color: var(--muted); font-size: 12px; }
+.board table td .w { font-size: 12px; margin-left: 6px; }
+.queue { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.queue .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--prior); }
+.queue.busy .dot { background: var(--cobalt); }
+.queue.busy { color: var(--ink); }
+
+/* hero: the decision */
+.hero { background: var(--surface); border-radius: 14px; padding: 26px 30px 30px; margin-top: 8px; }
+.where { margin: 0; color: var(--muted); }
+.focal { margin: 2px 0 6px; font-size: 34px; font-weight: 600; color: var(--cobalt); line-height: 1.15; }
+.focal .ev { font-size: 18px; color: var(--muted); font-weight: 400; margin-left: 10px; }
+.why { margin: 0; font-size: 16px; max-width: 70ch; }
+
+/* pipeline */
+.pipeline { display: grid; grid-template-columns: 1.15fr auto 1fr auto 0.9fr auto 1.15fr; gap: 0 18px; margin-top: 28px; align-items: start; }
+@media (max-width: 1100px) { .pipeline { grid-template-columns: 1fr; gap: 26px; } .chev { display: none; } }
+.stage h3 { margin: 0 0 14px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.stage h3 b { color: var(--ink); margin-right: 6px; }
+.chev { align-self: center; color: var(--rule); }
+.cards { display: flex; gap: 6px; flex-wrap: wrap; }
+.cards + .label { margin-top: 12px; }
+.label { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
+.pill { display: inline-block; font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--track); color: var(--ink); margin-top: 10px; }
+.mini { margin-top: 16px; }
+.mini .row { display: flex; justify-content: space-between; align-items: baseline; }
+.mini .num { font-size: 20px; font-weight: 600; }
+.bar-track { position: relative; height: 6px; border-radius: 3px; background: var(--track); margin: 6px 0 2px; }
+.bar-fill { position: absolute; top: 0; height: 6px; border-radius: 3px; transition: width var(--ease), left var(--ease); }
+.bar-fill.cobalt { background: var(--cobalt); } .bar-fill.neutral { background: var(--prior); }
+.belief { margin-bottom: 16px; }
+.belief .row { display: flex; justify-content: space-between; }
+.belief .val { font-weight: 600; }
+.belief .prior-note { font-size: 12px; color: var(--muted); }
+.gauge { position: relative; height: 18px; }
+.gauge .t { position: absolute; left: 0; right: 0; top: 7px; height: 4px; border-radius: 2px; background: var(--track); }
+.gauge .p { position: absolute; top: 2px; width: 0; height: 14px; border-left: 2px dashed var(--prior); }
+.gauge .d { position: absolute; top: 3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%;
+  background: var(--cobalt); box-shadow: 0 0 0 2px var(--surface); transition: left var(--ease); }
+.equity-big { font-size: 40px; font-weight: 600; line-height: 1; color: var(--cobalt); }
+.price { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.ev-row { display: grid; grid-template-columns: 112px 1fr 52px; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; }
+.ev-row.chosen { background: var(--track); }
+.ev-row.chosen .name { color: var(--cobalt); font-weight: 600; }
+.ev-row .v { text-align: right; }
+.ev-bar { position: relative; height: 12px; }
+.ev-bar .axis { position: absolute; left: 50%; top: -4px; bottom: -4px; border-left: 1px solid var(--muted); }
+.ev-bar .f { position: absolute; top: 0; height: 12px; border-radius: 3px; transition: width var(--ease), left var(--ease); }
+.ev-bar .f.gain { background: var(--gain); } .ev-bar .f.loss { background: var(--loss); }
+.ev-note { font-size: 12px; color: var(--muted); margin: 10px 0 0 10px; }
+
+/* replay (sticky) */
+.replay { position: sticky; bottom: 0; z-index: 5; margin-top: 18px; }
+.replay .inner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 12px; padding: 10px 14px; box-shadow: 0 6px 18px rgba(18,35,58,.08); }
+.replay input[type=range] { flex: 1; min-width: 160px; accent-color: var(--cobalt); }
+.replay .pos { color: var(--muted); min-width: 210px; }
+
+/* sections */
+.section { margin-top: 44px; }
+.section h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+.section > .sub, .col > .sub { margin: 0 0 16px; color: var(--muted); max-width: 80ch; }
+.two { display: grid; grid-template-columns: 1.8fr 1fr; gap: 40px; }
+@media (max-width: 1100px) { .two { grid-template-columns: 1fr; } }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; color: var(--muted); margin-bottom: 14px; }
+.legend i { display: inline-block; width: 18px; border-top: 2px solid var(--cobalt); vertical-align: middle; margin-right: 6px; }
+.legend i.prior { border-top: 2px dashed var(--prior); }
+.multiples { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; }
+@media (max-width: 760px) { .multiples { grid-template-columns: repeat(2, 1fr); } }
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart .cap { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+.chart .cap b { color: var(--ink); font-size: 16px; font-weight: 600; margin: 0 2px; }
+.grid-line { stroke: var(--rule); stroke-width: 1; }
+.tick { fill: var(--muted); font-size: 11px; }
+.line-live { fill: none; stroke: var(--cobalt); stroke-width: 2; }
+.line-prior { fill: none; stroke: var(--prior); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.now-line { stroke: var(--muted); stroke-width: 1; }
+.axis0 { stroke: var(--muted); stroke-width: 1; }
+.dot-gain { fill: var(--gain); } .dot-loss { fill: var(--loss); } .dot-neutral { fill: var(--prior); }
+
+.tools { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+@media (max-width: 1000px) { .tools { grid-template-columns: 1fr; } }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--rule); }
+th { color: var(--muted); font-weight: 400; font-size: 12px; }
+td.num, th.num { text-align: right; }
+.state-gain { color: var(--gain); } .state-loss { color: var(--loss); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips label { border: 1px solid var(--rule); border-radius: 999px; padding: 3px 11px; cursor: pointer; color: var(--muted); }
+.chips input { position: absolute; opacity: 0; pointer-events: none; }
+.chips label:has(input:checked) { border-color: var(--cobalt); color: var(--ink); font-weight: 600; }
+.chips label:has(input:focus-visible) { outline: 2px solid var(--cobalt); outline-offset: 2px; }
+.params { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 24px; margin-bottom: 14px; }
+.params label { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.params input { width: 74px; text-align: right; padding: 4px 7px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+.status { color: var(--muted); margin-top: 10px; min-height: 1.5em; }
+.status.err { color: var(--loss); }
+.empty { padding: 40px 0; color: var(--muted); font-size: 15px; }
+details summary { cursor: pointer; font-size: 18px; font-weight: 600; }
+footer { height: 60px; }
+#tip { position: fixed; pointer-events: none; background: var(--ink); color: var(--surface); padding: 6px 9px;
+  border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity 80ms; z-index: 10; max-width: 260px; }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>Bot lab</h1>
+  <span class="muted" id="trace-meta">Loading the latest trace</span>
+  <span class="spacer"></span>
+  <div class="seg" id="opp-seg" role="group" aria-label="Opponent"></div>
+  <button class="btn" id="theme-btn" type="button" aria-label="Switch light or dark theme">Theme</button>
+</div></header>
+
+<main class="wrap">
+  <section class="board" aria-labelledby="h-board">
+    <div class="board-head">
+      <h2 id="h-board">Scoreboard</h2>
+      <span class="muted">Latest full-field run per bot: every opponent, tournament scoring.</span>
+      <span class="spacer"></span>
+      <span class="queue" id="queue"><span class="dot"></span><span id="queue-text">Machine idle</span></span>
+      <button class="btn" id="board-run" type="button">Re-measure both bots</button>
+    </div>
+    <div class="totals" id="totals"></div>
+    <div id="board-table"></div>
+    <div class="status" id="board-status"></div>
+  </section>
+
+  <section class="hero" aria-live="polite">
+    <p class="where" id="where">No trace yet</p>
+    <h2 class="focal" id="focal">Run a traced match to watch the model think</h2>
+    <p class="why" id="why"></p>
+    <div class="pipeline" id="pipeline"></div>
+  </section>
+
+  <div class="replay" aria-label="Replay">
+    <div class="inner">
+      <button class="btn" id="prev" type="button" aria-label="Previous decision">Back</button>
+      <button class="btn primary" id="play" type="button">Play</button>
+      <button class="btn" id="next" type="button" aria-label="Next decision">Next</button>
+      <div class="seg" id="half-seg" role="group" aria-label="Half"></div>
+      <input type="range" id="scrub" min="0" max="0" value="0" aria-label="Decision">
+      <span class="pos" id="scrub-pos"></span>
+    </div>
+  </div>
+
+  <div class="section two">
+    <div class="col">
+      <h2>How it is learning this opponent</h2>
+      <p class="sub">Each line starts at the population prior and moves toward what this opponent really does. The thin vertical line marks the decision above; click a chart to jump there.</p>
+      <div class="legend"><span><i></i>What the bot believes</span><span><i class="prior"></i>Where it started (population prior)</span>
+        <div class="seg" id="metric-seg" role="group" aria-label="Which habit"></div></div>
+      <div class="multiples" id="multiples"></div>
+    </div>
+    <div class="col">
+      <h2>Results in this trace</h2>
+      <p class="sub">Big blinds won per deal, with the 95% range the judge uses. A win needs the whole range above zero. Click a row to study that opponent.</p>
+      <div class="chart" id="results"></div>
+    </div>
+  </div>
+
+  <div class="section tools">
+    <div class="col">
+      <h2>Run a traced match</h2>
+      <p class="sub">Plays the v2 bot against the opponents you pick and records every decision. About a minute for 300 deals.</p>
+      <div class="chips" id="trace-opps"></div>
+      <p style="margin:14px 0 0"><label>Deals per half
+        <select id="trace-deals"><option>150</option><option selected>300</option><option>600</option><option>1000</option></select></label>
+        <button class="btn primary" id="trace-run" type="button" style="margin-left:10px">Run traced match</button></p>
+      <div class="status" id="trace-status"></div>
+    </div>
+    <div class="col">
+      <h2>Tuning history</h2>
+      <p class="sub">Runs logged by tune.py. Score is the sum of bb/deal per opponent, each capped at 3.</p>
+      <div id="history"></div>
+    </div>
+  </div>
+
+  <details class="section">
+    <summary>v1 thresholds (the bot in agent.py today)</summary>
+    <p class="muted">Test runs the field with these values and leaves mybot.py untouched. Save writes them into mybot.py; they reach the tournament only once committed.</p>
+    <div class="params" id="params"></div>
+    <button class="btn primary" id="p-test" type="button">Test without saving</button>
+    <button class="btn" id="p-save" type="button">Save to mybot.py</button>
+    <div class="status" id="p-status"></div>
+  </details>
+  <footer></footer>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<script>
+const ACTION_NAME = { FOLD: "Fold", CHECK_CALL: "Check / call", RAISE_HALF: "Raise half pot", RAISE_POT: "Raise pot" };
+const ACTION_ORDER = ["FOLD", "CHECK_CALL", "RAISE_HALF", "RAISE_POT"];
+const STREETS = ["PREFLOP", "FLOP", "TURN", "RIVER"];
+const STREET = { PREFLOP: "preflop", FLOP: "flop", TURN: "turn", RIVER: "river" };
+const STREET_CAP = { PREFLOP: "Preflop", FLOP: "Flop", TURN: "Turn", RIVER: "River" };
+const METRICS = [["Folds to a bet", 0], ["Bets when checked to", 1], ["Raises a bet", 2]];
+const SVGNS = "http://www.w3.org/2000/svg";
+const state = { trace: null, opp: 0, half: 1, idx: 0, metric: 0, playing: null };
+const $ = (id) => document.getElementById(id);
+const pct = (x) => `${Math.round(x * 100)}%`;
+const signed = (x, d = 1) => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function el(tag, attrs = {}, parent) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function svgText(parent, x, y, str, cls, anchor = "start") {
+  const t = el("text", { x, y, class: cls, "text-anchor": anchor }, parent); t.textContent = str; return t;
+}
+const tip = $("tip");
+function showTip(evt, html) { tip.innerHTML = html; tip.style.opacity = 1;
+  tip.style.left = Math.min(evt.clientX + 14, innerWidth - 270) + "px"; tip.style.top = (evt.clientY + 14) + "px"; }
+function hideTip() { tip.style.opacity = 0; }
+
+// ---------- playing cards (inline SVG)
+const SUIT = { s: ["♠", "black", "spades"], h: ["♥", "red", "hearts"], d: ["♦", "red", "diamonds"], c: ["♣", "black", "clubs"] };
+const RANK = { T: "10", J: "J", Q: "Q", K: "K", A: "A" };
+function cardSVG(code, size = 1) {
+  const w = 46 * size, h = 64 * size;
+  if (!code) return `<svg width="${w}" height="${h}" viewBox="0 0 46 64" aria-hidden="true"><rect x="1" y="1" width="44" height="62" rx="6" fill="none" stroke="var(--rule)" stroke-dasharray="4 3"/></svg>`;
+  const r = RANK[code[0]] || code[0], [sym, col, name] = SUIT[code[1]];
+  const fill = col === "red" ? "var(--card-red)" : "var(--card-ink)";
+  return `<svg width="${w}" height="${h}" viewBox="0 0 46 64" role="img" aria-label="${r} of ${name}">
+    <rect x="1" y="1" width="44" height="62" rx="6" fill="var(--card-bg)" stroke="var(--card-edge)"/>
+    <text x="7" y="17" font-size="14" font-weight="600" fill="${fill}">${r}</text>
+    <text x="7" y="30" font-size="12" fill="${fill}">${sym}</text>
+    <text x="27" y="52" font-size="24" text-anchor="middle" fill="${fill}">${sym}</text></svg>`;
+}
+const cardRow = (str, slots) => {
+  const cs = (str || "").split(" ").filter(Boolean);
+  return Array.from({ length: slots }, (_, i) => cardSVG(cs[i])).join("");
+};
+
+// ---------- theme
+(function () {
+  let saved = null; try { saved = localStorage.getItem("botlab-theme"); } catch {}
+  if (saved) document.documentElement.dataset.theme = saved;
+  $("theme-btn").onclick = () => {
+    const dark = getComputedStyle(document.documentElement).colorScheme.includes("dark");
+    document.documentElement.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("botlab-theme", document.documentElement.dataset.theme); } catch {}
+  };
+})();
+
+// ---------- data
+function decisionsOf(match) {
+  if (match._split) return match._split;
+  const halves = { 1: [], 2: [] }; let half = 1, prev = -1;
+  for (const d of match.decisions) { if (d.error) continue; if (d.hand < prev) half = 2; prev = d.hand; halves[half].push(d); }
+  return (match._split = halves);
+}
+const current = () => { const m = state.trace?.matches[state.opp]; return m ? decisionsOf(m)[state.half] : []; };
+
+// ---------- the decision + pipeline
+function why(d) {
+  const odds = d.to_call ? d.to_call / (d.pot + d.to_call) : 0, post = d.posterior[d.street];
+  if (d.action === "FOLD") {
+    const best = Math.max(...Object.entries(d.evs).filter(([a]) => a !== "FOLD").map(([, v]) => v));
+    return `Every other move loses chips on average (best alternative ${signed(best)}). Against what they probably hold you win ${pct(d.equity_vs_range)}, short of the ${pct(odds)} the price needs.`;
+  }
+  if (d.action === "CHECK_CALL" && d.to_call > 0)
+    return `Calling costs ${d.to_call} to win ${d.pot + d.to_call}, so it needs a ${pct(odds)} chance. Against what they probably hold, the bot wins ${pct(d.equity_vs_range)}.`;
+  if (d.action === "CHECK_CALL")
+    return `Checking is free, and betting is not worth more here. Against what they probably hold, the bot wins ${pct(d.equity_vs_range)}.`;
+  return `Raising wins the pot right away whenever they fold (the bot expects that ${pct(post[0])} of the time on the ${STREET[d.street]}), and it still wins ${pct(d.equity_vs_range)} when they call.`;
+}
+const chev = `<svg class="chev" width="14" height="28" viewBox="0 0 14 28" aria-hidden="true"><path d="M3 3 L11 14 L3 25" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
+function belief(label, prior, live) {
+  return `<div class="belief"><div class="row"><span>${label}</span><span class="val">${pct(live)}</span></div>
+    <div class="gauge"><div class="t"></div><div class="p" style="left:${prior * 100}%"></div><div class="d" style="left:${live * 100}%"></div></div>
+    <div class="prior-note">started at ${pct(prior)}</div></div>`;
+}
+function drawDecision(d) {
+  if (!d) { $("where").textContent = state.trace ? "No decisions in this half" : "No trace yet";
+    $("focal").textContent = "Run a traced match to watch the model think"; $("why").textContent = ""; $("pipeline").innerHTML = ""; return; }
+  const m = state.trace.matches[state.opp];
+  $("where").textContent = `Hand ${d.hand + 1} of half ${state.half}, ${STREET[d.street]}, against ${m.opponent}`;
+  $("focal").innerHTML = `${ACTION_NAME[d.action]}<span class="ev">${signed(d.evs[d.action], 2)} chips expected</span>`;
+  $("why").textContent = why(d);
+  const pri = (state.trace.priors || {})[d.street] || d.posterior[d.street], post = d.posterior[d.street];
+  const odds = d.to_call ? d.to_call / (d.pot + d.to_call) : 0;
+  const acts = ACTION_ORDER.filter((a) => a in d.evs);
+  const maxAbs = Math.max(1, ...acts.map((a) => Math.abs(d.evs[a])));
+  const evRows = acts.map((a) => {
+    const v = d.evs[a], w = Math.abs(v) / maxAbs * 50;
+    return `<div class="ev-row${a === d.action ? " chosen" : ""}"><span class="name">${ACTION_NAME[a]}</span>
+      <div class="ev-bar"><div class="axis"></div><div class="f ${v >= 0 ? "gain" : "loss"}" style="left:${v >= 0 ? 50 : 50 - w}%;width:${Math.max(w, 0.4)}%"></div></div>
+      <span class="v">${signed(v)}</span></div>`;
+  }).join("");
+  $("pipeline").innerHTML = `
+    <div class="stage"><h3><b>1</b>What it sees</h3>
+      <p class="label">Its hand</p><div class="cards">${cardRow(d.hole, 5)}</div>
+      <p class="label" style="margin-top:12px">The board</p><div class="cards">${cardRow(d.board, 5)}</div>
+      <span class="pill">${d.is_button ? "In position (acts last)" : "Out of position (acts first)"}</span>
+    </div>${chev}
+    <div class="stage"><h3><b>2</b>What it believes about ${esc(m.opponent)}, ${STREET[d.street]}</h3>
+      ${belief("Folds to a bet", pri[0], post[0])}${belief("Bets when checked to", pri[1], post[1])}${belief("Raises a bet", pri[2], post[2])}
+      <div class="mini"><div class="row"><span>Their likely hands</span><span class="num">top ${pct(d.range_top)}</span></div>
+        <div class="bar-track"><div class="bar-fill cobalt" style="left:${(1 - d.range_top) * 100}%;width:${d.range_top * 100}%"></div></div>
+        <div class="prior-note muted" style="font-size:12px">${pct(d.bluff_share)} of their bets modeled as bluffs</div></div>
+    </div>${chev}
+    <div class="stage"><h3><b>3</b>Its chance to win</h3>
+      <div class="equity-big">${pct(d.equity_vs_range)}</div>
+      <p class="label" style="margin-top:6px">against what they probably hold</p>
+      <div class="bar-track"><div class="bar-fill neutral" style="left:0;width:${d.equity_vs_random * 100}%"></div></div>
+      <p class="label">${pct(d.equity_vs_random)} against a random hand</p>
+      <div class="price">${d.to_call ? `<div><b>Needs ${pct(odds)}</b> to call</div><div class="muted">pot ${d.pot}, call ${d.to_call}</div>`
+        : `<div><b>Checking is free</b></div><div class="muted">pot ${d.pot}</div>`}
+        <div class="muted" style="font-size:12px;margin-top:6px">from ${d.iters} simulated deals</div></div>
+    </div>${chev}
+    <div class="stage"><h3><b>4</b>Expected chips for each move</h3>${evRows}
+      <p class="ev-note">Highlighted: what it chose. Right of the line wins chips on average, left loses.</p>
+    </div>`;
+}
+
+// ---------- learning curves
+const LW = 180, LH = 110, LL = 32, LR = 4, LT = 6, LB = 18;
+const lx = (i, n) => LL + (i / Math.max(1, n - 1)) * (LW - LL - LR);
+const ly = (v) => LT + (1 - v) * (LH - LT - LB);
+function drawLearning() {
+  const box = $("multiples"); box.replaceChildren();
+  const ds = current(); if (!ds.length) return;
+  const k = METRICS[state.metric][1], priors = state.trace.priors || {};
+  for (const s of STREETS) {
+    const wrap = document.createElement("div"); wrap.className = "chart";
+    const last = ds[ds.length - 1].posterior[s][k], p0 = (priors[s] || [0, 0, 0])[k];
+    wrap.innerHTML = `<div class="cap">${STREET_CAP[s]} <b>${pct(last)}</b> started at ${pct(p0)}</div>`;
+    const svg = el("svg", { viewBox: `0 0 ${LW} ${LH}`, role: "img",
+      "aria-label": `${STREET_CAP[s]}: ${METRICS[state.metric][0].toLowerCase()} moved from ${pct(p0)} to ${pct(last)}` });
+    [0, .5, 1].forEach((v) => { el("line", { x1: LL, x2: LW - LR, y1: ly(v), y2: ly(v), class: "grid-line" }, svg);
+      svgText(svg, LL - 5, ly(v) + 3, pct(v), "tick", "end"); });
+    svgText(svg, LL, LH - 3, "hand 1", "tick"); svgText(svg, LW - LR, LH - 3, `hand ${ds[ds.length - 1].hand + 1}`, "tick", "end");
+    if (priors[s]) el("line", { x1: LL, x2: LW - LR, y1: ly(p0), y2: ly(p0), class: "line-prior" }, svg);
+    const step = Math.max(1, Math.floor(ds.length / 300)); let path = "";
+    for (let i = 0; i < ds.length; i += step) path += `${i ? "L" : "M"}${lx(i, ds.length).toFixed(1)},${ly(ds[i].posterior[s][k]).toFixed(1)}`;
+    el("path", { d: path, class: "line-live" }, svg);
+    el("line", { x1: lx(state.idx, ds.length), x2: lx(state.idx, ds.length), y1: LT, y2: LH - LB, class: "now-line", "data-now": 1 }, svg);
+    const cross = el("line", { y1: LT, y2: LH - LB, class: "now-line", opacity: 0 }, svg);
+    const hit = el("rect", { x: LL, y: LT, width: LW - LL - LR, height: LH - LT - LB, fill: "transparent", style: "cursor:pointer" }, svg);
+    const idxAt = (e) => { const r = svg.getBoundingClientRect(); const fx = ((e.clientX - r.left) / r.width * LW - LL) / (LW - LL - LR);
+      return Math.max(0, Math.min(ds.length - 1, Math.round(fx * (ds.length - 1)))); };
+    hit.addEventListener("mousemove", (e) => { const i = idxAt(e);
+      cross.setAttribute("x1", lx(i, ds.length)); cross.setAttribute("x2", lx(i, ds.length)); cross.setAttribute("opacity", 1);
+      showTip(e, `Hand ${ds[i].hand + 1}: believes ${pct(ds[i].posterior[s][k])}`); });
+    hit.addEventListener("mouseleave", () => { cross.setAttribute("opacity", 0); hideTip(); });
+    hit.addEventListener("click", (e) => setIdx(idxAt(e)));
+    wrap.appendChild(svg); box.appendChild(wrap);
+  }
+}
+
+// ---------- results
+function drawResults() {
+  const box = $("results"); box.replaceChildren();
+  const ms = state.trace?.matches || []; if (!ms.length) return;
+  const W = 360, rowH = 34, L = 104, R = 78, H = ms.length * rowH + 28;
+  const lo = Math.min(-1, ...ms.map((m) => m.ci[0])), hi = Math.max(1, ...ms.map((m) => m.ci[1]));
+  const xs = (v) => L + (v - lo) / (hi - lo) * (W - L - R);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Big blinds per deal with 95% ranges, per opponent" });
+  el("line", { x1: xs(0), x2: xs(0), y1: 0, y2: H - 22, class: "axis0" }, svg);
+  svgText(svg, xs(0), H - 6, "0", "tick", "middle");
+  ms.forEach((m, i) => {
+    const y = 16 + i * rowH, cls = m.ci[0] > 0 ? "gain" : m.ci[1] < 0 ? "loss" : "neutral";
+    const word = cls === "gain" ? "win" : cls === "loss" ? "loss" : "chop";
+    const name = svgText(svg, L - 12, y + 4, m.opponent, "tick", "end");
+    name.style.fontSize = "12px"; if (i === state.opp) { name.style.fill = "var(--ink)"; name.style.fontWeight = 600; }
+    el("line", { x1: xs(m.ci[0]), x2: xs(m.ci[1]), y1: y, y2: y, stroke: `var(--${cls === "neutral" ? "prior" : cls})`, "stroke-width": 2 }, svg);
+    el("circle", { cx: xs(m.mean_bb_per_deal), cy: y, r: 5.5, class: `dot-${cls}`, stroke: "var(--base)", "stroke-width": 2 }, svg);
+    const v = svgText(svg, W - 2, y + 4, `${signed(m.mean_bb_per_deal, 2)} ${word}`, "tick", "end"); v.style.fontSize = "12px";
+    const hit = el("rect", { x: 0, y: y - rowH / 2, width: W, height: rowH, fill: "transparent", style: "cursor:pointer" }, svg);
+    hit.addEventListener("mousemove", (e) => showTip(e, `${m.opponent}: ${signed(m.mean_bb_per_deal, 3)} bb/deal, range ${signed(m.ci[0], 2)} to ${signed(m.ci[1], 2)} (${word}), ${m.deals} deals per half`));
+    hit.addEventListener("mouseleave", hideTip);
+    hit.addEventListener("click", () => { state.opp = i; renderAll(); });
+  });
+  box.appendChild(svg);
+}
+
+// ---------- controls
+function seg(container, items, active, onPick) {
+  container.replaceChildren();
+  items.forEach(([label, value]) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label;
+    b.setAttribute("aria-pressed", String(value === active)); b.onclick = () => onPick(value); container.appendChild(b); });
+}
+function setIdx(i) {
+  const ds = current();
+  state.idx = Math.max(0, Math.min(ds.length - 1, i));
+  $("scrub").value = state.idx;
+  const d = ds[state.idx];
+  $("scrub-pos").textContent = d ? `Decision ${state.idx + 1} of ${ds.length}, hand ${d.hand + 1}` : "";
+  drawDecision(d);
+  history.replaceState(null, "", `#opp=${state.opp}&half=${state.half}&i=${state.idx}`);
+  document.querySelectorAll("[data-now]").forEach((ln) => { const x = lx(state.idx, ds.length); ln.setAttribute("x1", x); ln.setAttribute("x2", x); });
+}
+function renderAll() {
+  const t = state.trace; if (!t) { drawDecision(null); return; }
+  seg($("opp-seg"), t.matches.map((m, i) => [m.opponent, i]), state.opp, (i) => { state.opp = i; renderAll(); });
+  seg($("half-seg"), [["Half 1", 1], ["Half 2", 2]], state.half, (h) => { state.half = h; renderAll(); });
+  seg($("metric-seg"), METRICS.map(([l], i) => [l, i]), state.metric, (k) => { state.metric = k; drawLearning(); setIdx(state.idx); });
+  const ds = current(); $("scrub").max = Math.max(0, ds.length - 1);
+  if (state.idx >= ds.length) state.idx = Math.max(0, ds.length - 1);
+  drawLearning(); drawResults(); setIdx(state.idx);
+}
+$("scrub").addEventListener("input", (e) => setIdx(+e.target.value));
+$("prev").onclick = () => setIdx(state.idx - 1);
+$("next").onclick = () => setIdx(state.idx + 1);
+$("play").onclick = () => {
+  if (state.playing) { clearInterval(state.playing); state.playing = null; $("play").textContent = "Play"; return; }
+  $("play").textContent = "Pause";
+  state.playing = setInterval(() => { if (state.idx >= current().length - 1) { $("play").click(); return; } setIdx(state.idx + 1); }, 400);
+};
+document.addEventListener("keydown", (e) => {
+  if (e.target.matches("input, select, textarea")) return;
+  if (e.key === "ArrowRight") setIdx(state.idx + 1);
+  if (e.key === "ArrowLeft") setIdx(state.idx - 1);
+});
+
+async function loadTrace() {
+  const res = await fetch("/api/trace");
+  if (!res.ok) { $("trace-meta").textContent = "No trace yet"; drawDecision(null); return; }
+  state.trace = await res.json();
+  const t = state.trace, when = t.created.replace(/(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d).*/, "$1-$2-$3 $4:$5 UTC");
+  $("trace-meta").textContent = `${t.bot} against ${t.matches.length} opponents, ${t.deals} deals per half, recorded ${when}`;
+  state.opp = Math.min(state.opp, t.matches.length - 1);
+  renderAll();
+}
+
+// ---------- traced-match runner
+function setupTraceRunner() {
+  const known = ["equity_bot", "aggro_bot", "tight_bot", "station", "random", "half", "pot", "slow_equity_bot"];
+  const chosen = new Set((state.trace?.matches || []).map((m) => m.opponent));
+  const box = $("trace-opps");
+  known.forEach((o) => { const l = document.createElement("label");
+    const on = chosen.size ? chosen.has(o) : ["equity_bot", "aggro_bot", "tight_bot"].includes(o);
+    l.innerHTML = `<input type="checkbox" value="${o}" ${on ? "checked" : ""}><span>${o}</span>`; box.appendChild(l); });
+  $("trace-run").onclick = async () => {
+    const opps = [...box.querySelectorAll("input:checked")].map((i) => i.value), st = $("trace-status");
+    if (!opps.length) { st.className = "status err"; st.textContent = "Pick at least one opponent."; return; }
+    const res = await fetch("/api/trace/run", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ opponents: opps.join(","), deals: +$("trace-deals").value }) });
+    const data = await res.json();
+    if (!res.ok) { st.className = "status err"; st.textContent = data.status === "already_running" ?
+      "Another run is in progress. Try again when it finishes." : data.error; return; }
+    st.className = "status"; st.textContent = "Recording decisions..."; $("trace-run").disabled = true;
+    const poll = setInterval(async () => {
+      const s = await (await fetch("/api/status")).json();
+      if (s.running) { st.textContent = `Recording decisions, ${Math.round(s.elapsed_seconds)}s`; return; }
+      clearInterval(poll); $("trace-run").disabled = false;
+      const log = (await (await fetch("/api/last-log")).json()).log;
+      if (/raised exceptions|Traceback/.test(log)) { st.className = "status err";
+        st.textContent = "Trace failed: some decisions raised errors, so the bot would have silently checked. Details are in data/last_run.log.";
+      } else { st.className = "status"; st.textContent = "Done. Showing the new trace."; }
+      await loadTrace();
+    }, 2000);
+  };
+}
+
+// ---------- history and v1 params
+async function loadHistory() {
+  const rows = await (await fetch("/api/experiments")).json(), box = $("history");
+  if (!rows.length) { box.innerHTML = '<div class="empty">No tuning runs yet. Run <b>python tune.py run</b> to log one.</div>'; return; }
+  box.innerHTML = `<table><thead><tr><th>When (UTC)</th><th>Tag</th><th class="num">Points</th><th class="num">Score</th><th>Health</th></tr></thead><tbody>${
+    rows.slice(-8).reverse().map((r) => `<tr><td>${esc((r.timestamp || "").slice(5, 16).replace("T", " "))}</td><td>${esc(r.tag || "")}</td>
+      <td class="num">${r.field.total_points.toFixed(2)} / ${r.field.max_points}</td>
+      <td class="num">${r.field.score_bb != null ? r.field.score_bb.toFixed(2) : "-"}</td>
+      <td class="${r.health.safe ? "state-gain" : "state-loss"}">${r.health.safe ? "OK" : "Problem"}</td></tr>`).join("")}</tbody></table>`;
+}
+async function loadParams() {
+  const data = await (await fetch("/api/current-params")).json(), box = $("params"); box.replaceChildren();
+  Object.entries(data.params || {}).forEach(([k, v]) => { const l = document.createElement("label");
+    l.innerHTML = `<span>${esc(k)}</span><input type="number" step="0.01" min="0" max="1" value="${v}" data-k="${esc(k)}" aria-label="${esc(k)}">`;
+    box.appendChild(l); });
+}
+function collectParams() {
+  const out = {}, st = $("p-status");
+  for (const inp of document.querySelectorAll("#params input")) {
+    const v = Number(inp.value);
+    if (inp.value.trim() === "" || !Number.isFinite(v) || v < 0 || v > 1) {
+      st.className = "status err"; st.textContent = `${inp.dataset.k} needs a number between 0 and 1. Nothing was saved or run.`; inp.focus(); return null; }
+    out[inp.dataset.k] = v;
+  }
+  return out;
+}
+$("p-test").onclick = async () => {
+  const params = collectParams(); if (!params) return;
+  const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tag: "param-test", seeds: 1, deals: 500, params }) });
+  const d = await res.json(), st = $("p-status"); st.className = res.ok ? "status" : "status err";
+  st.textContent = res.ok ? "Testing these values (mybot.py unchanged). The result appears in Tuning history." :
+    (d.status === "already_running" ? "Another run is in progress; try again when it finishes." : d.error);
+};
+$("p-save").onclick = async () => {
+  const params = collectParams(); if (!params) return;
+  const res = await fetch("/api/save-params", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ params }) });
+  const d = await res.json(), st = $("p-status"); st.className = res.ok ? "status" : "status err";
+  st.textContent = res.ok ? "Saved to mybot.py. Commit it for the tournament to use it." : `Not saved: ${d.error}`;
+};
+
+
+// ---------- scoreboard + shared queue
+const BOT_LABEL = { mybot: "v1, in agent.py", mybot_v2: "v2, in development" };
+const verdictOf = (o) => o.wins === o.wins + o.chops + o.losses ? "win" : (o.losses ? (o.wins ? "mixed" : "loss") : (o.wins ? "mixed" : "chop"));
+async function loadScoreboard() {
+  const rows = await (await fetch("/api/scoreboard")).json();
+  $("totals").innerHTML = rows.map((r) => r.timestamp ? `<div class="total"><div class="name">${BOT_LABEL[r.bot] || r.bot}</div>
+      <div class="pts">${r.field.total_points.toFixed(2)} <small>of ${r.field.max_points} points</small></div>
+      <div class="when">${r.timestamp.slice(5, 16).replace("T", " ")} UTC, ${r.field.seeds} seeds x ${r.field.deals} deals${r.health.safe === false ? ', <span class="state-loss">health problem</span>' : ""}</div></div>`
+    : `<div class="total"><div class="name">${BOT_LABEL[r.bot] || r.bot}</div><div class="pts"><small>not measured yet</small></div></div>`).join("");
+  const have = rows.filter((r) => r.timestamp);
+  if (!have.length) { $("board-table").innerHTML = '<div class="empty">No full-field runs yet. Press Re-measure both bots.</div>'; return; }
+  const opps = [...new Set(have.flatMap((r) => Object.keys(r.field.opponents)))];
+  const cell = (r, o) => { const x = r.timestamp && r.field.opponents[o]; if (!x) return '<td class="num muted">-</td>';
+    const n = x.wins + x.chops + x.losses, word = x.wins === n ? "win" : x.losses === n ? "loss" : x.chops === n ? "chop" : `${x.wins}W ${x.chops}C ${x.losses}L`;
+    const cls = x.wins === n ? "state-gain" : x.losses === n ? "state-loss" : "muted";
+    return `<td class="num">${signed(x.mean_bb_deal, 2)}<span class="w ${cls}">${word}</span></td>`; };
+  $("board-table").innerHTML = `<table><thead><tr><th>Opponent</th>${rows.map((r) => `<th class="num">${BOT_LABEL[r.bot] || r.bot}, bb/deal</th>`).join("")}</tr></thead>
+    <tbody>${opps.map((o) => `<tr><td>${esc(o)}</td>${rows.map((r) => cell(r, o)).join("")}</tr>`).join("")}</tbody></table>`;
+}
+async function pollQueue() {
+  try {
+    const s = await (await fetch("/api/status")).json(), h = s.queue_holder;
+    $("queue").classList.toggle("busy", !!h);
+    $("queue-text").textContent = h ? `Running now: ${h.owner}, ${h.tag} (${Math.round(h.elapsed_seconds)}s)${s.queued ? ". Your run is queued next." : ""}` : "Machine idle";
+    $("board-run").disabled = s.running;
+    if (state.wasBoardRun && !s.running) { state.wasBoardRun = false; $("board-status").textContent = "Scoreboard updated."; loadScoreboard(); loadHistory(); }
+  } catch {}
+}
+$("board-run").onclick = async () => {
+  const res = await fetch("/api/scoreboard/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seeds: 2 }) });
+  const d = await res.json(), st = $("board-status");
+  if (!res.ok) { st.className = "status err"; st.textContent = d.status === "already_running" ? "A dashboard run is already in progress." : d.error; return; }
+  st.className = "status"; st.textContent = "Measuring v1, then v2, on every opponent (about a minute each). It waits its turn if another run holds the machine.";
+  state.wasBoardRun = true; pollQueue();
+};
+
+(async function init() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.has("opp")) state.opp = +h.get("opp"); if (h.has("half")) state.half = +h.get("half"); if (h.has("i")) state.idx = +h.get("i");
+  await loadTrace(); setupTraceRunner(); loadHistory(); loadParams(); setInterval(loadHistory, 15000);
+  loadScoreboard(); pollQueue(); setInterval(pollQueue, 3000); setInterval(loadScoreboard, 15000); })();
+</script>
+</body>
+</html>

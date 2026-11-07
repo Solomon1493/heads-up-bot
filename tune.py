@@ -85,20 +85,25 @@ def _file_hash(path):
     return h.hexdigest()[:12]
 
 
-def _snapshot_code():
-    """Save a copy of mybot.py with its hash as filename."""
-    h = _file_hash(MYBOT_PATH)
-    dst = os.path.join(SNAPSHOTS_DIR, f"mybot_{h}.py")
+def _bot_path(bot="mybot"):
+    return os.path.join(ROOT, f"{bot}.py")
+
+
+def _snapshot_code(bot="mybot"):
+    """Save a copy of the bot with its hash as filename."""
+    path = _bot_path(bot)
+    h = _file_hash(path)
+    dst = os.path.join(SNAPSHOTS_DIR, f"{bot}_{h}.py")
     if not os.path.exists(dst):
-        with open(MYBOT_PATH, "r") as f:
+        with open(path, "r") as f:
             src = f.read()
         with open(dst, "w") as f:
             f.write(src)
     return h, dst
 
 
-def _read_mybot_source():
-    with open(MYBOT_PATH, "r") as f:
+def _read_bot_source(bot="mybot"):
+    with open(_bot_path(bot), "r") as f:
         return f.read()
 
 
@@ -194,8 +199,8 @@ def run_experiment(tag="", bot="mybot", seeds=2, deals=1000, workers=None, param
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     # Snapshot
-    code_hash, snapshot_path = _snapshot_code()
-    source = _read_mybot_source()
+    code_hash, snapshot_path = _snapshot_code(bot)
+    source = _read_bot_source(bot)
     params = _extract_params(source)
     git = _git_info()
 
@@ -276,19 +281,19 @@ def diff_snapshots(hash1, hash2):
     return "\n".join(diff)
 
 
-def _build_experiment_record(tag, field_results, params, extra=None):
+def _build_experiment_record(tag, field_results, params, bot="mybot", extra=None):
     """Build a structured experiment record without running a new evaluation."""
     experiment_id = uuid.uuid4().hex[:10]
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    code_hash, snapshot_path = _snapshot_code()
-    source = _read_mybot_source()
+    code_hash, snapshot_path = _snapshot_code(bot)
+    source = _read_bot_source(bot)
     git = _git_info()
 
     record = {
         "id": experiment_id,
         "timestamp": timestamp,
         "tag": tag,
-        "bot": "mybot",
+        "bot": bot,
         "code_hash": code_hash,
         "snapshot": os.path.basename(snapshot_path),
         "params": params,
@@ -342,12 +347,13 @@ def print_summary(record):
 
 
 def cmd_run(args):
-    print(f"Running field evaluation (seeds={args.seeds}, deals={args.deals})...")
+    bot = getattr(args, "bot", "mybot")
+    print(f"Running field evaluation for {bot} (seeds={args.seeds}, deals={args.deals})...")
     override = json.loads(args.params) if args.params else None
     if override:
-        print(f"Parameter overrides (mybot.py on disk is NOT changed): {override}")
+        print(f"Parameter overrides ({bot}.py on disk is NOT changed): {override}")
     record = run_experiment(
-        tag=args.tag, seeds=args.seeds, deals=args.deals, workers=args.workers,
+        tag=args.tag, bot=bot, seeds=args.seeds, deals=args.deals, workers=args.workers,
         params_override=override,
     )
     print_summary(record)
@@ -398,26 +404,27 @@ def cmd_sweep(args):
     3. Candidates that beat the baseline by more than 2 standard errors are finalists.
     4. Finalists and the baseline replay the HELD-OUT opponents on fresh deals.
        A candidate is recommended only if it also beats the baseline there, with no
-       errors, forfeits or slow decisions. Nothing is written to mybot.py.
+       errors, forfeits or slow decisions. Nothing is written to the bot file.
     """
-    base_params = _extract_params(_read_mybot_source())
+    bot = getattr(args, "bot", "mybot")
+    base_params = _extract_params(_read_bot_source(bot))
     if not base_params:
-        print("No PARAMS or DEFAULT_PARAMS dict found in mybot.py.")
+        print(f"No PARAMS or DEFAULT_PARAMS dict found in {bot}.py.")
         return
-    train_opps, holdout_opps = split_opponents()
+    train_opps, holdout_opps = split_opponents(bot=bot)
     if not holdout_opps:
         print("Every opponent is in TRAIN_OPPONENTS, so nothing is held out. Edit the split in tune.py.")
         return
 
     rng = random.Random(args.sweep_seed)
     kw = dict(seeds=args.seeds, deals=args.deals, workers=args.workers)
-    print(f"Sweep: {args.trials} trials, {args.seeds} seed(s) x {args.deals} deals per opponent")
+    print(f"Sweep for {bot}: {args.trials} trials, {args.seeds} seed(s) x {args.deals} deals per opponent")
     print(f"Train opponents:    {train_opps}")
     print(f"Held-out opponents: {holdout_opps}")
     print(f"Score = sum of per-opponent bb/deal, each capped at {BB_CAP}")
 
-    base_train = run_field_subset("mybot", train_opps, **kw)
-    _log(_build_experiment_record("sweep-baseline-train", base_train, base_params,
+    base_train = run_field_subset(bot, train_opps, **kw)
+    _log(_build_experiment_record(f"sweep-baseline-train-{bot}", base_train, base_params, bot=bot,
                                   extra={"opponent_set": "train"}))
     print(f"\nBaseline (current params) train score: {base_train['score_bb']:+.3f} "
           f"(points {base_train['total_points']:.2f}/{base_train['max_points']})")
@@ -427,36 +434,39 @@ def cmd_sweep(args):
         cand = {}
         for k, v in base_params.items():
             if isinstance(v, (int, float)):
-                cand[k] = round(max(0.0, min(1.0, v + v * 0.2 * (rng.random() * 2 - 1))), 4)
+                if v <= 1.0:
+                    cand[k] = round(max(0.0, min(1.0, v + v * 0.35 * (rng.random() * 2 - 1))), 4)
+                else:
+                    cand[k] = round(max(1.0, v * (1.0 + 0.40 * (rng.random() * 2 - 1))), 2)
             else:
                 cand[k] = v
-        res = run_field_subset("mybot", train_opps, params=cand, **kw)
+        res = run_field_subset(bot, train_opps, params=cand, **kw)
         d, se = _delta(res, base_train)
-        _log(_build_experiment_record(f"sweep-{trial}", res, cand, extra={
+        _log(_build_experiment_record(f"sweep-{trial}-{bot}", res, cand, bot=bot, extra={
             "sweep_trial": trial, "opponent_set": "train", "delta_vs_baseline": round(d, 4),
             "delta_se": round(se, 4)}))
-        verdict = "finalist" if d > 2 * se and _healthy(res) else ""
+        verdict = "finalist" if d > 2 * se and _healthy(res) else ""   # must beat noise (STRATEGY.md ship rule)
         print(f"  trial {trial + 1:2d}/{args.trials}: {d:+.3f} vs current (noise +/-{2 * se:.3f})  {verdict}")
         trials.append((d, se, cand, res))
 
     finalists = [t for t in sorted(trials, key=lambda t: -t[0])
                  if t[0] > 2 * t[1] and _healthy(t[3])][:args.finalists]
     if not finalists:
-        print("\nNo candidate beat the current params by more than the noise. Keep the current params.")
+        print("\nNo candidate beat the current params by more than the noise (2 standard errors). Keep the current params.")
         print("(Try more --seeds / --deals for a finer measurement, or change the strategy instead.)")
         return
 
     hkw = dict(kw, seeds=max(2, args.seeds), seed_prefix="holdout")
     print(f"\nHeld-out check on fresh deals ({hkw['seeds']} seed(s) per opponent)...")
-    base_hold = run_field_subset("mybot", holdout_opps, **hkw)
-    _log(_build_experiment_record("sweep-baseline-holdout", base_hold, base_params,
+    base_hold = run_field_subset(bot, holdout_opps, **hkw)
+    _log(_build_experiment_record(f"sweep-baseline-holdout-{bot}", base_hold, base_params, bot=bot,
                                   extra={"opponent_set": "holdout"}))
     accepted = None
     for i, (d, se, cand, _) in enumerate(finalists):
-        res = run_field_subset("mybot", holdout_opps, params=cand, **hkw)
+        res = run_field_subset(bot, holdout_opps, params=cand, **hkw)
         hd, hse = _delta(res, base_hold)
         ok = hd > 0 and _healthy(res)
-        _log(_build_experiment_record(f"sweep-finalist-{i}-holdout", res, cand, extra={
+        _log(_build_experiment_record(f"sweep-finalist-{i}-holdout-{bot}", res, cand, bot=bot, extra={
             "opponent_set": "holdout", "train_delta": round(d, 4),
             "delta_vs_baseline": round(hd, 4), "delta_se": round(hse, 4)}))
         print(f"  finalist {i + 1}: train {d:+.3f}, held-out {hd:+.3f} (noise +/-{2 * hse:.3f})  "
@@ -472,10 +482,10 @@ def cmd_sweep(args):
     d, hd, cand = accepted
     changed = {k: (base_params[k], v) for k, v in cand.items() if v != base_params.get(k)}
     print(f"RECOMMENDED: train {d:+.3f}, held-out {hd:+.3f} bb/deal (capped score).")
-    print("Tuned values only ship once they are in mybot.py and committed. Change DEFAULT_PARAMS:")
+    print(f"Tuned values only ship once they are in {bot}.py and committed. Change PARAMS in {bot}.py:")
     for k, (old, new) in changed.items():
         print(f"    {k:22} {old} -> {new}")
-    print("Then re-run `python fastarena.py field mybot --seeds 4` before committing.")
+    print(f"Then re-run `python fastarena.py field {bot} --seeds 4` before committing.")
 
 
 def main():
@@ -483,17 +493,19 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     run_p = sub.add_parser("run", help="run one field evaluation and log it")
+    run_p.add_argument("--bot", default="mybot", help="which bot to evaluate (e.g. mybot or mybot_v2)")
     run_p.add_argument("--tag", default="", help="human label for this run")
     run_p.add_argument("--seeds", type=int, default=2)
     run_p.add_argument("--deals", type=int, default=1000)
     run_p.add_argument("--workers", type=int, default=os.cpu_count() or 1)
-    run_p.add_argument("--params", help='JSON overrides for mybot PARAMS, e.g. \'{"eq_raise_pot": 0.75}\'')
+    run_p.add_argument("--params", help='JSON overrides for bot PARAMS, e.g. \'{"prior_strength": 15.0}\'')
     run_p.set_defaults(fn=cmd_run)
 
     hist_p = sub.add_parser("history", help="show experiment log")
     hist_p.set_defaults(fn=cmd_history)
 
     sweep_p = sub.add_parser("sweep", help="random parameter sweep")
+    sweep_p.add_argument("--bot", default="mybot", help="which bot to sweep (e.g. mybot or mybot_v2)")
     sweep_p.add_argument("--trials", type=int, default=10)
     sweep_p.add_argument("--seeds", type=int, default=2)
     sweep_p.add_argument("--deals", type=int, default=1000)
@@ -504,7 +516,14 @@ def main():
     sweep_p.set_defaults(fn=cmd_sweep)
 
     args = p.parse_args()
-    args.fn(args)
+    if args.cmd in ("run", "sweep"):
+        # One measurement at a time across every tool and agent (see tools/runlock.py).
+        from tools.runlock import run_lock
+        owner = os.environ.get("RUN_OWNER", "tune.py (terminal)")
+        with run_lock(owner=owner, tag=f"{args.cmd} {getattr(args, 'bot', 'mybot')} {getattr(args, 'tag', '')}".strip()):
+            args.fn(args)
+    else:
+        args.fn(args)
 
 
 if __name__ == "__main__":
