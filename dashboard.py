@@ -448,7 +448,9 @@ def _families_of(opps):
     """{family: {points, max}} and the weighted share, from {opponent: {points}}."""
     import families
     out, num, den = {}, 0.0, 0.0
-    for fam, members in families.families().items():
+    groups = dict(families.families())
+    groups["S"] = [o for o in opps if o.startswith("swarm:")]
+    for fam, members in groups.items():
         rs = [opps[o]["points"] for o in members if o in opps]
         if not rs:
             continue
@@ -500,12 +502,15 @@ def _all_runs():
         if r.get("kind") == "stress":
             base.update(label="time bank stress test", passed=r.get("passed"), worst_bank=r.get("worst_bank"),
                         bank=r.get("bank"), healthy=bool(r.get("passed")))
+        elif r.get("kind") == "swarm":
+            base.update(label=f"styles {r.get('base', 0)} to {r.get('base', 0) + (r.get('max_points') or 0) - 1}",
+                        summary=r.get("summary"))
         elif r.get("kind") == "ab":
             base.update(label=f"vs {r.get('vs', '')}", vs=r.get("vs"), points_vs=r.get("points_vs"),
                         head_to_head=r.get("head_to_head"))
         for x in r.get("rows") or []:
             base["opponents"][x["opponent"]] = {k: x.get(k) for k in ("w", "c", "l", "points", "bb", "max_s", "flags",
-                                                                       "matches", "buckets", "worst")}
+                                                                       "matches", "buckets", "worst", "describe")}
             base["opponents"][x["opponent"]]["ci"] = None
             if x.get("flags"):
                 base["healthy"] = False

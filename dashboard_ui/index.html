@@ -719,8 +719,9 @@ $("stress-run").onclick = () => startJob("/api/stress/run", {}, "Playing the shi
 // ---------- runs: one list from every tool; the selected run fills the main area
 const BOT_NAME = { mybot: "v1", mybot_v2: "v2" };
 const botName = (b) => BOT_NAME[b] || b;
-const RUN_FILTERS = [["All", "all"], ["v1", "mybot"], ["v2", "mybot_v2"], ["Stress", "stress"]];
-const isField = (r) => r.kind === "field" && r.opponents && Object.keys(r.opponents).length;
+const RUN_FILTERS = [["All", "all"], ["v1", "mybot"], ["v2", "mybot_v2"], ["Swarm", "swarm"], ["Stress", "stress"]];
+const isField = (r) => (r.kind === "field" || r.kind === "swarm") && r.opponents && Object.keys(r.opponents).length;
+const famOf = (o) => (o.startsWith("swarm:") ? "S" : state.runsData.family_of[o] || "C");
 const isFull = (r) => isField(r) && r.max_points >= 25 && !r.overridden;
 // Every time on the page is shown in US Central time (CST/CDT); the logs store UTC.
 const CT = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "2-digit", day: "2-digit",
@@ -747,11 +748,12 @@ function runScore(r) {
 function runTitle(r) {
   if (r.kind === "stress") return "Time bank stress test";
   if (r.kind === "ab") return `${botName(r.bot)} vs ${botName(r.vs)}, head to head`;
+  if (r.kind === "swarm") return `${botName(r.bot)} vs ${r.max_points} random styles`;
   return `${botName(r.bot)}${r.kind === "sweep" ? " sweep trial" : r.max_points >= 25 ? ", full field" : `, ${r.max_points} opponent${r.max_points === 1 ? "" : "s"}`}`;
 }
 function drawRail() {
   const runs = (state.runsData?.runs || []), f = state.runFilter || "all";
-  const shown = runs.filter((r) => f === "all" || (f === "stress" ? r.kind === "stress" : r.bot === f && r.kind !== "stress"));
+  const shown = runs.filter((r) => f === "all" || (f === "stress" || f === "swarm" ? r.kind === f : r.bot === f && r.kind !== "stress"));
   const live = state.live ? `<li><button class="live" type="button" disabled><span class="t">${esc(state.live.tag)}</span>
     <span class="s">${state.live.total ? `${state.live.done}/${state.live.total}` : ""}</span><span class="m">running now, ${esc(state.live.owner)}</span></button></li>` : "";
   $("runlist").innerHTML = live + (shown.length ? shown.map((r) => `<li><button type="button" data-id="${r.id}" aria-current="${r.id === state.sel}">
@@ -773,7 +775,7 @@ function baselineFor(r) {
   const runs = state.runsData.runs;
   if (state.base) return runs.find((x) => x.id === state.base);
   const idx = runs.indexOf(r);                 // runs are newest first: older ones come after
-  return runs.slice(idx + 1).find((x) => x.bot === r.bot && isField(x) && x.kind === r.kind &&
+  return runs.slice(idx + 1).find((x) => (r.kind === "swarm" || x.bot === r.bot) && isField(x) && x.kind === r.kind &&
     Object.keys(x.opponents).filter((o) => o in r.opponents).length >= Object.keys(r.opponents).length * 0.8);
 }
 const dSpan = (d, dp = 2) => d == null || Math.abs(d) < 1e-9 ? '<span class="muted">0</span>' : `<span class="${d > 0 ? "state-gain" : "state-loss"}">${signed(d, dp)}</span>`;
@@ -802,20 +804,21 @@ function drawDetail() {
   const paired = base && base.tool === r.tool && base.seeds === r.seeds && base.deals === r.deals;
   let html = head + `<div class="bignum"><span class="v">${(+r.points).toFixed(2)}<small>of ${r.max_points} points${r.weighted != null ? `, ${pct(r.weighted)} weighted` : ""}</small></span>
     ${base ? `<span class="d">${dSpan(dp)} <span class="muted" style="font-weight:400">vs baseline</span></span>` : ""}</div>
+    ${r.summary ? `<p class="note" style="margin:0 0 12px">Average <b>${signed(r.summary.mean_bb, 2)}</b> bb per deal; beat <b>${pct(r.summary.beaten)}</b> of styles, lost to <b>${pct(r.summary.lost)}</b>; worst 10% of styles average <b class="${r.summary.worst10_bb < 0 ? "state-loss" : ""}">${signed(r.summary.worst10_bb, 2)}</b>${base?.summary ? ` (baseline ${signed(base.summary.mean_bb, 2)} average, ${signed(base.summary.worst10_bb, 2)} worst 10%)` : ""}.</p>` : ""}
     <div class="basepick"><label for="base-sel">Compared with</label><select id="base-sel"><option value="">${base ? "" : "no earlier run"}</option>${cands.map((x) =>
       `<option value="${x.id}"${base && x.id === base.id ? " selected" : ""}>${when(x.timestamp)} ${esc(runTitle(x))}, ${(+x.points).toFixed(2)} (${esc(x.owner)})</option>`).join("")}</select>
       ${base ? `<span>${paired ? "same deals, so differences are a fair comparison" : "different deals or seeds: expect more noise in the differences"}</span>` : ""}</div>`;
   const groups = {};
-  Object.keys(r.opponents).forEach((o) => { const f = fam[o] || "C"; (groups[f] = groups[f] || []).push(o); });
+  Object.keys(r.opponents).forEach((o) => { const f = famOf(o); (groups[f] = groups[f] || []).push(o); });
   const lim = Math.min(8, Math.max(2, ...Object.values(r.opponents).map((x) => Math.abs(x.bb) + (ciHalf(x) || 0))));
   state.openFam = state.openFam || new Set();
   html += `<table class="res"><thead><tr><th>Opponent</th><th class="num">Result</th><th class="num">bb per deal</th><th class="num">vs baseline</th><th class="num">Max think s</th><th><div class="strip-scale"><span>${signed(-lim, 0)}</span><span>bb per deal, 95% range</span><span>${signed(lim, 0)}</span></div></th></tr></thead><tbody>${
     Object.keys(groups).sort().map((f) => { const p = r.families?.[f], bp = base?.families?.[f];
       const open = state.openFam.has(f);
-      return `<tr class="fam" tabindex="0" data-fam="${f}" aria-expanded="${open}"><td><b>${f}. ${esc(famName[f] || "")}</b> <span class="muted">weight ${pct(w[f] || 0)}</span></td>
+      return `<tr class="fam" tabindex="0" data-fam="${f}" aria-expanded="${open}"><td><b>${f}. ${esc(famName[f] || "")}</b> <span class="muted">${w[f] ? `weight ${pct(w[f])}` : f === "S" ? "worst first" : ""}</span></td>
         <td class="num"><b>${p.points} of ${p.max}</b></td><td></td><td class="num dl">${bp ? dSpan(p.points - bp.points) + " pts" : ""}</td><td></td><td></td></tr>` +
-      groups[f].sort().map((o) => { const x = r.opponents[o], b = base?.opponents?.[o];
-        return `<tr class="opp" tabindex="0" data-opp="${esc(o)}" aria-expanded="${state.oppSel === o}" data-in="${f}"${open ? "" : " hidden"}><td style="padding-left:38px">${esc(o)}</td><td class="num">${verdict(x)}</td>
+      (f === "S" ? groups[f].sort((p, q) => r.opponents[p].bb - r.opponents[q].bb) : groups[f].sort()).map((o) => { const x = r.opponents[o], b = base?.opponents?.[o];
+        return `<tr class="opp" tabindex="0" data-opp="${esc(o)}" aria-expanded="${state.oppSel === o}" data-in="${f}"${open ? "" : " hidden"}><td style="padding-left:38px">${esc(o)}${x.describe ? `<div class="muted" style="font-size:12px">${esc(x.describe)}</div>` : ""}</td><td class="num">${verdict(x)}</td>
           <td class="num">${signed(x.bb, 2)}</td><td class="num dl">${b ? dSpan(x.bb - b.bb) : ""}</td>
           <td class="num ${x.flags ? "state-loss" : ""}">${(+x.max_s).toFixed(2)}${x.flags ? ` ${esc(x.flags)}` : ""}</td>
           <td class="strip">${strip(x, lim)}</td></tr>`; }).join(""); }).join("")}</tbody></table>`;

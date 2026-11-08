@@ -48,6 +48,8 @@ TIME_WARN_SECONDS = 4.0  # flag bots using more than half the bank (HTTP overhea
 
 
 def resolve(spec):
+    if str(spec).startswith("swarm:") and str(spec)[6:].isdigit():
+        return str(spec)                                 # built in memory by load_module
     if spec in BASELINES:
         return os.path.join(ROOT, BASELINES[spec])
     for cand in (spec, spec + ".py", os.path.join("zoo", spec + ".py")):
@@ -64,6 +66,12 @@ def zoo_specs():
 
 
 def load_module(path):
+    if str(path).startswith("swarm:"):                   # a random style from zoo/_swarm_bot.py
+        import types
+        from zoo import _swarm_bot
+        mod = types.ModuleType(f"_arena_swarm_{path[6:]}")
+        mod.new_half, mod.choose_action, mod.on_hand_end, mod.STYLE = _swarm_bot.make(int(path[6:]))
+        return mod
     name = f"_arena_bot_{uuid.uuid4().hex}"
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
@@ -431,6 +439,34 @@ def cmd_ab(a):
              "head_to_head": round(hh, 3)})
 
 
+def cmd_swarm(a):
+    """Play the bot against --n random styles (swarm:base .. swarm:base+n-1), one match each.
+    Scores robustness: average bb per deal, share beaten, and the worst 10% of styles."""
+    from tools.runlock import log_run
+    from zoo import _swarm_bot
+    opps = [f"swarm:{a.base + i}" for i in range(a.n)]
+    with _queued(f"swarm {os.path.basename(a.bot)} x{a.n}"):
+        pts, text = field_table(a.bot, opps, 1, a.deals, a.workers)
+    rows = field_table.last
+    for r in rows:
+        st = _swarm_bot.draw_style(int(r["opponent"][6:]))
+        r["style"], r["describe"] = st, _swarm_bot.describe(st)
+    bbs = sorted(r["bb"] for r in rows)
+    worst = bbs[:max(1, len(bbs) // 10)]
+    summary = {"mean_bb": round(sum(bbs) / len(bbs), 3), "beaten": sum(r["w"] for r in rows) / len(rows),
+               "lost": sum(r["l"] for r in rows) / len(rows), "worst10_bb": round(sum(worst) / len(worst), 3)}
+    print(f"{a.bot} vs {a.n} random styles (base {a.base}, {a.deals} deals per half):")
+    print(f"  average {summary['mean_bb']:+.3f} bb/deal, beat {summary['beaten']:.0%}, lost to {summary['lost']:.0%}, "
+          f"worst 10% average {summary['worst10_bb']:+.3f} bb/deal, points {pts:.1f} of {a.n}")
+    print("  worst styles:")
+    for r in sorted(rows, key=lambda r: r["bb"])[:5]:
+        print(f"    {r['opponent']:10} {r['bb']:+.2f}  {r['describe']}")
+    if a.verbose:
+        print(text)
+    log_run({"kind": "swarm", "bot": os.path.basename(a.bot), "seeds": 1, "deals": a.deals, "base": a.base,
+             "points": round(pts, 2), "max_points": a.n, "summary": summary, "rows": rows})
+
+
 def cmd_tournament(a):
     bots = a.bots
     pairs = [(x, y) for i, x in enumerate(bots) for y in bots[i + 1:]]
@@ -484,6 +520,13 @@ def main(argv=None):
     ab.add_argument("--opponents")
     ab.add_argument("--seeds", type=int, default=3)
     ab.set_defaults(fn=cmd_ab)
+
+    sw = sub.add_parser("swarm", parents=[common], help="robustness: one bot vs many random opponent styles")
+    sw.add_argument("bot")
+    sw.add_argument("--n", type=int, default=80, help="how many random styles")
+    sw.add_argument("--base", type=int, default=0, help="first style seed; change it for never-seen opponents")
+    sw.add_argument("--verbose", action="store_true", help="also print every opponent")
+    sw.set_defaults(fn=cmd_swarm, deals=500)
 
     t = sub.add_parser("tournament", parents=[common], help="round robin with tournament scoring")
     t.add_argument("bots", nargs="+")

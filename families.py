@@ -17,7 +17,7 @@ import os
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 FAMILY_NAMES = {"A": "Generated", "B": "Basic and broken", "C": "Exam (held out)",
-                "D": "Our past versions", "E": "Exploiter"}
+                "D": "Our past versions", "E": "Exploiter", "S": "Swarm (random styles)"}
 
 _EXPLICIT = {
     "B": ["random", "half", "pot", "station", "slow_equity_bot", "allin_random", "allin_selective"],
@@ -49,6 +49,8 @@ def families(hero=None):
 
 
 def family_of(opponent):
+    if str(opponent).startswith("swarm:"):
+        return "S"
     for k, v in families().items():
         if opponent in v:
             return k
