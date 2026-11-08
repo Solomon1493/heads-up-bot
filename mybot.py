@@ -176,10 +176,13 @@ def _bluff_heavy(memory):
 
 def _opp_k(obs, opp_af, maniac):
     """How many random hands the opponent's betting is worth: one per bet or raise they made
-    this street, plus one if they are tight; a maniac's bet is worth a random hand."""
+    this street, one more if the bet is pot-sized, one more if they are tight; a maniac's bet
+    is worth a random hand."""
     if maniac:
         return 1
     k = 1 + max(1, obs.raises_this_street)
+    if obs.to_call >= 0.75 * (obs.pot - obs.to_call):    # a pot-sized bet shows more strength than half pot
+        k += 1
     if opp_af < PARAMS["tight_threshold"]:
         k += 1
     return k
