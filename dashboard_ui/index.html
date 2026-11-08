@@ -38,8 +38,8 @@ button, input, select { font: inherit; color: inherit; }
 .muted { color: var(--muted); }
 
 /* header */
-header { padding: 18px 0 10px; }
-header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+header { padding: 12px 0; border-bottom: 1px solid var(--rule); }
+header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 28px; }
 header h1 { margin: 0; font-size: 18px; font-weight: 600; }
 header .spacer { flex: 1; }
 .seg { display: inline-flex; background: var(--track); border-radius: 8px; padding: 2px; gap: 2px; flex-wrap: wrap; }
@@ -59,7 +59,13 @@ header .spacer { flex: 1; }
 /* state line */
 .stateline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 28px; padding: 14px 0 18px; border-bottom: 1px solid var(--rule); }
 .stat .k { color: var(--muted); font-size: 12px; display: block; }
-.stat .v { font-size: 22px; font-weight: 600; line-height: 1.2; }
+.stat .v { font-size: 18px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
+header .stat .k { font-size: 11px; }
+header .queue { font-size: 13px; }
+.replay-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 14px 0 8px; }
+.replay-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.replay-head .muted { font-size: 13px; }
+#board-status:empty { display: none; }
 .stat .v small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 4px; }
 .stateline .spacer { flex: 1; }
 .stateline .acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -147,14 +153,14 @@ table.res tr.opp[aria-expanded="true"] td { background: var(--track); }
 .log-filter { margin-left: auto; }
 
 /* hero: the decision */
-.hero { background: var(--surface); border-radius: 14px; padding: 26px 30px 30px; margin-top: 8px; }
+.hero { background: var(--surface); border-radius: 14px; padding: 18px 26px 22px; }
 .where { margin: 0; color: var(--muted); }
 .focal { margin: 2px 0 6px; font-size: 34px; font-weight: 600; color: var(--cobalt); line-height: 1.15; }
 .focal .ev { font-size: 18px; color: var(--muted); font-weight: 400; margin-left: 10px; }
 .why { margin: 0; font-size: 16px; max-width: 70ch; }
 
 /* pipeline */
-.pipeline { display: grid; grid-template-columns: 1.15fr auto 1fr auto 0.9fr auto 1.15fr; gap: 0 18px; margin-top: 28px; align-items: start; }
+.pipeline { display: grid; grid-template-columns: 1.15fr auto 1fr auto 0.9fr auto 1.15fr; gap: 0 18px; margin-top: 18px; align-items: start; }
 @media (max-width: 1100px) { .pipeline { grid-template-columns: 1fr; gap: 26px; } .chev { display: none; } }
 .stage h3 { margin: 0 0 14px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .stage h3 b { color: var(--ink); margin-right: 6px; }
@@ -246,27 +252,22 @@ footer { height: 60px; }
 <body>
 <header><div class="wrap">
   <h1>Bot lab</h1>
+  <div class="stat"><span class="k">v1, shipped</span><span class="v" id="st-v1">-</span></div>
+  <div class="stat"><span class="k">v2, in development</span><span class="v" id="st-v2">-</span></div>
+  <div class="stat"><span class="k">Time bank under load</span><span class="v" id="st-bank">-</span></div>
   <span class="spacer"></span>
+  <span class="queue" id="queue"><span class="dot"></span><span id="queue-text">Machine idle</span></span>
+  <button class="btn" id="board-run" type="button">Re-measure both bots</button>
+  <button class="btn" id="stress-run" type="button">Run stress test</button>
   <button class="btn" id="theme-btn" type="button" aria-label="Switch light or dark theme">Theme</button>
 </div></header>
 
 <main class="wrap">
-  <div class="stateline" aria-label="Current state">
-    <div class="stat"><span class="k">v1, shipped in agent.py</span><span class="v" id="st-v1">-</span></div>
-    <div class="stat"><span class="k">v2, in development</span><span class="v" id="st-v2">-</span></div>
-    <div class="stat"><span class="k">Time bank under load</span><span class="v" id="st-bank">-</span></div>
-    <span class="spacer"></span>
-    <div class="acts">
-      <span class="queue" id="queue"><span class="dot"></span><span id="queue-text">Machine idle</span></span>
-      <button class="btn" id="board-run" type="button">Re-measure both bots</button>
-      <button class="btn" id="stress-run" type="button">Run stress test</button>
-    </div>
-  </div>
   <div class="status" id="board-status" aria-live="polite"></div>
 
-  <section class="section" id="replay-sec" aria-labelledby="h-replay" style="margin-top:22px">
-    <h2 id="h-replay">Decision replay</h2>
-    <p class="sub" id="trace-meta">Pick a run, open an opponent, and press Replay on a seed to watch every decision of that exact match.</p>
+  <section id="replay-sec" aria-labelledby="h-replay">
+    <div class="replay-head"><h2 id="h-replay">Decision replay</h2>
+    <span class="muted" id="trace-meta">Pick a run, open an opponent, and press Replay on a seed to watch every decision of that exact match.</span></div>
     <div class="status" id="replay-status" aria-live="polite"></div>
   <section class="hero" aria-live="polite">
     <p class="where" id="where">No trace yet</p>
@@ -644,10 +645,10 @@ async function loadTrace() {
   const res = await fetch("/api/trace");
   if (!res.ok) { $("trace-meta").textContent = "No trace yet"; drawDecision(null); return; }
   state.trace = await res.json();
-  const t = state.trace, when = t.created.replace(/(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d).*/, "$1-$2-$3 $4:$5 UTC"), m0 = t.matches[0];
+  const t = state.trace, created = when(t.created), m0 = t.matches[0];
   $("trace-meta").textContent = t.matches.length === 1
-    ? `${botName(t.bot)} against ${m0.opponent}, match ${m0.seed}: ${signed(m0.mean_bb_per_deal, 2)} bb per deal (${m0.verdict.replace("AGENT1_WIN", "win").replace("AGENT2_WIN", "loss").replace("CHOP", "chop")}). Replayed ${when}. Arrow keys step through decisions.`
-    : `${botName(t.bot)} against ${t.matches.length} opponents, ${t.deals} deals per half, recorded ${when}`;
+    ? `${botName(t.bot)} against ${m0.opponent}, match ${m0.seed}: ${signed(m0.mean_bb_per_deal, 2)} bb per deal (${m0.verdict.replace("AGENT1_WIN", "win").replace("AGENT2_WIN", "loss").replace("CHOP", "chop")}). Replayed ${created}. Arrow keys step through decisions.`
+    : `${botName(t.bot)} against ${t.matches.length} opponents, ${t.deals} deals per half, recorded ${created}`;
   state.opp = Math.min(state.opp, t.matches.length - 1);
   renderAll();
 }
@@ -713,7 +714,17 @@ const botName = (b) => BOT_NAME[b] || b;
 const RUN_FILTERS = [["All", "all"], ["v1", "mybot"], ["v2", "mybot_v2"], ["Stress", "stress"]];
 const isField = (r) => r.kind === "field" && r.opponents && Object.keys(r.opponents).length;
 const isFull = (r) => isField(r) && r.max_points >= 25 && !r.overridden;
-const when = (t) => t.slice(5, 16).replace("T", " ");
+// Every time on the page is shown in US Central time (CST/CDT); the logs store UTC.
+const CT = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "2-digit", day: "2-digit",
+  hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+function when(t) {
+  if (!t) return "";
+  let iso = String(t).trim().replace(" UTC", "").replace(" ", "T");
+  if (/^\d{8}T\d{6}/.test(iso)) iso = iso.replace(/^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d).*/, "$1-$2-$3T$4:$5:$6");
+  if (!/[zZ]|[+-]\d\d:?\d\d$/.test(iso)) iso += "Z";
+  const d = new Date(iso);
+  return isNaN(d) ? String(t) : CT.format(d).replace(",", "");
+}
 async function loadRuns() {
   try { state.runsData = await (await fetch("/api/runs")).json(); } catch { return; }
   const runs = state.runsData.runs;
@@ -737,7 +748,7 @@ function drawRail() {
     <span class="s">${state.live.total ? `${state.live.done}/${state.live.total}` : ""}</span><span class="m">running now, ${esc(state.live.owner)}</span></button></li>` : "";
   $("runlist").innerHTML = live + (shown.length ? shown.map((r) => `<li><button type="button" data-id="${r.id}" aria-current="${r.id === state.sel}">
       <span class="t">${esc(runTitle(r))}</span><span class="s">${runScore(r)}</span>
-      <span class="m">${when(r.timestamp)} UTC, ${esc(r.owner)}${r.seeds ? `, ${r.seeds} seeds` : ""}${r.label && r.kind !== "stress" ? `, ${esc(r.label)}` : ""}${r.healthy ? "" : ', <span class="state-loss">health problem</span>'}</span></button></li>`).join("")
+      <span class="m">${when(r.timestamp)}, ${esc(r.owner)}${r.seeds ? `, ${r.seeds} seeds` : ""}${r.label && r.kind !== "stress" ? `, ${esc(r.label)}` : ""}${r.healthy ? "" : ', <span class="state-loss">health problem</span>'}</span></button></li>`).join("")
     : '<li class="empty">No runs of this kind yet.</li>');
   $("runlist").querySelectorAll("button[data-id]").forEach((b) => { b.onclick = () => { state.sel = b.dataset.id; state.base = null; drawRail(); drawDetail(); }; });
 }
@@ -765,7 +776,7 @@ function verdict(x) {
 function drawDetail() {
   const box = $("detail"), runs = state.runsData?.runs || [], r = runs.find((x) => x.id === state.sel);
   if (!r) { box.innerHTML = '<div class="empty">No runs yet. Press Re-measure both bots to measure v1 and v2 on every opponent.</div>'; return; }
-  const head = `<div class="detail-head"><p class="meta">${when(r.timestamp)} UTC, ${esc(r.owner)} with ${esc(r.tool)}${r.seeds ? `, ${r.seeds} seeds x ${r.deals} deals` : ""}</p><h2>${esc(runTitle(r))}${r.label && r.kind !== "stress" && r.kind !== "ab" ? ` <span class="muted" style="font-weight:400">${esc(r.label)}</span>` : ""}</h2></div>`;
+  const head = `<div class="detail-head"><p class="meta">${when(r.timestamp)}, ${esc(r.owner)} with ${esc(r.tool)}${r.seeds ? `, ${r.seeds} seeds x ${r.deals} deals` : ""}</p><h2>${esc(runTitle(r))}${r.label && r.kind !== "stress" && r.kind !== "ab" ? ` <span class="muted" style="font-weight:400">${esc(r.label)}</span>` : ""}</h2></div>`;
   if (r.kind === "stress") {
     box.innerHTML = head + `<div class="bignum"><span class="v ${r.passed ? "state-gain" : "state-loss"}">${r.passed ? "Safe" : "Not safe"}</span>
       <span class="d">worst half used ${(+r.worst_bank).toFixed(2)} of ${r.bank} s</span></div>
@@ -892,7 +903,7 @@ function drawChangelog() {
   const key = (e) => (e.date || "") + "|" + e.title;
   const open = new Set([...document.querySelectorAll("#log details[open]")].map((d) => d.dataset.key));
   $("log").innerHTML = rows.map((e) => `<details class="log-entry" data-key="${esc(key(e))}"${open.has(key(e)) ? " open" : ""}>
-      <summary><span class="log-meta">${esc(e.date || "")} <span class="who">${esc(e.author || "")}</span> ${esc(e.bot === "mybot" ? "v1" : e.bot === "mybot_v2" ? "v2" : e.bot || "")}</span>
+      <summary><span class="log-meta">${esc(when(e.date))} <span class="who">${esc(e.author || "")}</span> ${esc(e.bot === "mybot" ? "v1" : e.bot === "mybot_v2" ? "v2" : e.bot || "")}</span>
         <span class="log-title">${esc(e.title)}</span>
         ${e.after ? `<span class="log-sum-result">${esc(e.after)}</span>` : ""}</summary>
       <div class="log-body">
