@@ -139,27 +139,47 @@ def main(argv=None):
                           "fix": "play fewer of these hands, or raise them differently",
                           "levers": PREFLOP_BTN if pos == "on the button" else PREFLOP_BB})
 
-    # 5. our own bets when checked to, priced against checking instead (same hindsight equity):
-    #    bet:   they fold -> we win the pot;  they call -> eq * (pot + 2 * bet) - bet
-    #    check: eq * pot
-    for r in sql(f"""WITH seqd AS (
-                       SELECT d.*, lead(action) OVER (PARTITION BY hand_id ORDER BY seq) AS reply
-                       FROM {{T}}.decisions d WHERE {mine})
-                     SELECT CASE WHEN hindsight_equity < 0.4 THEN 'bluff' WHEN hindsight_equity < 0.6 THEN 'thin'
-                                 ELSE 'value' END kind, count(*) n,
-                            avg(CASE WHEN reply = 'FOLD' THEN 1.0 ELSE 0.0 END) folds,
-                            sum((CASE WHEN reply = 'FOLD' THEN pot_before
-                                      ELSE hindsight_equity * (pot_before + 2 * amount) - amount END)
-                                - hindsight_equity * pot_before) gain
-                     FROM seqd WHERE actor = 'hero' AND to_call = 0 AND action IN ('RAISE_HALF', 'RAISE_POT')
-                       AND street != 'PREFLOP' AND hindsight_equity IS NOT NULL GROUP BY 1"""):
-        n, gain, folds = int(r["n"]), f(r["gain"]), f(r["folds"])
-        if n >= a.min_hands and gain < 0:
-            band = {"bluff": "under 40%", "thin": "40-60%", "value": "over 60%"}[r["kind"]]
-            leaks.append({"area": "betting", "chips": -gain, "n": n,
-                          "title": f"Betting with {band} real equity when checked to: {n} bets, they fold {folds:.0%}; "
-                                   f"checking would have kept {-gain / n:.2f} chips more per bet",
-                          "fix": "bet these less", "levers": BET})
+    # 5. our own bets when checked to: what actually happened after betting vs after checking,
+    #    in spots with the same real equity (tenths), street and position. "Result from here" is the
+    #    hand result plus what we had already put in, divided by the pot (so pot sizes compare).
+    #    It includes later streets, raises and calls, which a one-street estimate misses.
+    STACK = 80
+    rows = sql(f"""WITH d AS (
+                     SELECT d.street, d.actor_is_button btn, floor(d.hindsight_equity * 10) eqb, d.pot_before,
+                            CASE WHEN d.action IN ('RAISE_HALF','RAISE_POT') THEN 'bet' ELSE 'check' END choice,
+                            (h.hero_net_chips + ({STACK} - d.stack_before)) / d.pot_before rel
+                     FROM {{T}}.decisions d JOIN {{T}}.hands h ON d.hand_id = h.hand_id
+                     WHERE d.hero = '{a.bot}' AND element_at(split(d.run_id, '_'), 3) = '{ver}' AND d.actor = 'hero'
+                       AND d.to_call = 0 AND d.street != 'PREFLOP' AND d.hindsight_equity IS NOT NULL AND d.pot_before > 0)
+                   SELECT street, btn, eqb, choice, count(*) n, avg(rel) rel, avg(pot_before) pot
+                   FROM d GROUP BY 1, 2, 3, 4""")
+    cells = {}
+    for r in rows:
+        cells.setdefault((r["street"], r["btn"], r["eqb"]), {})[r["choice"]] = r
+    agg = {}
+    for (street, btn, eqb), c in cells.items():
+        if "bet" not in c or "check" not in c:
+            continue
+        nb, nc = int(c["bet"]["n"]), int(c["check"]["n"])
+        if nb < a.min_hands or nc < a.min_hands:
+            continue
+        diff = f(c["bet"]["rel"]) - f(c["check"]["rel"])          # pots won per decision, bet minus check
+        band = "weak" if float(eqb) < 4 else "medium" if float(eqb) < 6 else "strong"
+        key = (street, band)
+        g = agg.setdefault(key, [0, 0.0])
+        g[0] += nb
+        g[1] += diff * f(c["bet"]["pot"]) * nb                      # chips: per-pot difference x pot x bets
+    tradeoff = {}
+    for (street, band), (n, chips) in agg.items():
+        tradeoff.setdefault(street.lower(), {})[band] = {"bets": n, "chips_vs_check": round(chips)}
+    for (street, band), (n, chips) in agg.items():
+        if chips < 0:
+            leaks.append({"area": "betting", "chips": -chips, "n": n,
+                          "title": f"On the {street.lower()}, betting {band} hands ({'under 40%' if band == 'weak' else '40-60%' if band == 'medium' else 'over 60%'} "
+                                   f"real equity) did worse than checking the same kind of hand: {-chips / n:.2f} chips per bet, {n} bets",
+                          "fix": "bet these less" if band != "strong" else "check these more (slow down)", "levers": BET,
+                          "caveat": "v1 cannot see real equity when it bets: betting fewer weak hands also means betting "
+                                    "fewer strong ones. Weigh against the strong-hand gain in 'bet_tradeoff'."})
 
     # 6. version trend: chips per hand for every version of the bot in the tables
     trend = [{"version": r["v"], "hands": int(r["n"]), "chips_per_hand": round(f(r["net"]) / int(r["n"]), 3)}
@@ -172,7 +192,7 @@ def main(argv=None):
         x.setdefault("structural", False)
     doc = {"generated": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "bot": a.bot, "version": ver,
            "hands": int(size["hands"]), "opponents": int(size["opps"]), "net_chips": f(size["net"]),
-           "leaks": leaks, "trend": trend}
+           "leaks": leaks, "trend": trend, "bet_tradeoff": tradeoff}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as fh:
         json.dump(doc, fh, indent=1)
@@ -180,6 +200,9 @@ def main(argv=None):
     for i, x in enumerate(leaks[:10], 1):
         tag = "structural" if x["structural"] else f"settings: {', '.join(x['levers'])}"
         print(f"  {i:2}. [{x['area']}] {x['title']}. Cost {x['chips']} chips. ({tag})")
+    print("  betting trade-off (chips vs checking the same kind of hand):")
+    for st_, bands in tradeoff.items():
+        print(f"    {st_:5} " + ", ".join(f"{b} {v['chips_vs_check']:+} ({v['bets']} bets)" for b, v in bands.items()))
     print(f"wrote {OUT}")
 
 

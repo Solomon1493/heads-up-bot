@@ -26,10 +26,11 @@ STATE = os.path.join(ROOT, "data", "loop", "state.json")
 PY = sys.executable
 RANGE = 0.12            # each setting may move at most this far from its shipped value
 
-# The gate's rules. Field points: AGENTS.md treats < 0.5 as noise. Swarm average: about +/-0.06
-# run to run at 2 x 1000 deals per style (measured 2026-11-08), so 0.08 is a real move.
-GATE = {"field_gain": 0.5, "swarm_gain": 0.08, "family_drop": 0.5, "field_drop": 0.25,
-        "swarm_drop": 0.05, "worst10_drop": 0.15}
+# The gate's rules. The tournament scores points (win 1, chop 0.5, loss 0), so the gate decides on
+# total points: field (30 opponents) + fresh swarm (80 styles). Field points alone move ~0.5 between
+# equal bots (AGENTS.md); with the swarm added, +1.0 total is the bar. Chips are a guardrail only:
+# a change must not win a few matches while bleeding chips (swarm average) elsewhere.
+GATE = {"points_gain": 1.0, "family_drop": 0.5, "swarm_points_drop": 1.0, "chips_drop": 0.10}
 
 # Which settings touch which leak, so the leak report can point at levers.
 LEVERS = {
@@ -98,6 +99,7 @@ def _swarm_summary(results):
     bbs = sorted(x["bb"] for x in results.values())
     w = bbs[:max(1, len(bbs) // 10)]
     return {"mean": sum(bbs) / len(bbs), "worst10": sum(w) / len(w),
+            "points": sum(x["points"] for x in results.values()),
             "beaten": sum(1 for x in results.values() if x["points"] == 1.0) / len(bbs)}
 
 
@@ -185,6 +187,13 @@ def cmd_leaks(a):
         for i, x in enumerate(tunable, 1):
             print(f"  {i}. {x['title']}. Cost {x['chips']} chips. Fix: {x.get('fix', '')}.")
             print(f"     Settings that move this: {', '.join(x['levers'])}")
+            if x.get("caveat"):
+                print(f"     Careful: {x['caveat']}")
+        if doc.get("bet_tradeoff"):
+            print("\n  Betting trade-off, chips vs checking the same kind of hand (weak bets lose, strong bets win;")
+            print("  a betting change only helps if it cuts more weak-bet losses than strong-bet profit):")
+            for st_, bands in doc["bet_tradeoff"].items():
+                print(f"    {st_:5} " + ", ".join(f"{b} {v['chips_vs_check']:+} ({v['bets']} bets)" for b, v in bands.items()))
         if not tunable:
             print("  none")
         print("\nLeaks NO setting can fix (do not try; tell the human, they need new logic):")
@@ -253,11 +262,12 @@ def cmd_try(a):
     bf, bs = _measure(None, "try baseline", train, 2, 0, 40, 1, 500)
     dpts = sum(x["points"] for x in cf.values()) - sum(x["points"] for x in bf.values())
     c, b = _swarm_summary(cs), _swarm_summary(bs)
-    print(f"  training bots: {dpts:+.2f} points vs shipped")
+    print(f"  training bots: {dpts:+.2f} points vs shipped;  training swarm: {c['points'] - b['points']:+.1f} points")
     print(f"  training swarm: average {c['mean']:+.3f} vs {b['mean']:+.3f} bb/deal, worst 10% {c['worst10']:+.3f} vs {b['worst10']:+.3f}")
-    promising = dpts >= 0 and c["mean"] - b["mean"] >= 0
+    promising = dpts + c["points"] - b["points"] >= 0 and c["mean"] - b["mean"] > -GATE["chips_drop"]
     st = _state()
-    st["candidate"] = {"params": params, "when": time.strftime("%Y-%m-%d %H:%M"), "screen_points": round(dpts, 2),
+    st["candidate"] = {"params": params, "when": time.strftime("%Y-%m-%d %H:%M"),
+                       "screen_points": round(dpts + c["points"] - b["points"], 2),
                        "screen_swarm": round(c["mean"] - b["mean"], 3)}
     _save(st)
     print(f"  ({time.time() - t0:.0f}s)")
@@ -286,15 +296,15 @@ def cmd_gate(a):
     dsw, dworst = c["mean"] - b["mean"], c["worst10"] - b["worst10"]
     worst_fam = min(((fc[k] - fb[k], k) for k in fc), default=(0, ""))
     flags = any(x["flags"] for x in list(cf.values()) + list(cs.values()))
+    dswp = c["points"] - b["points"]
+    dtotal = dpts + dswp
     reasons, keep = [], True
-    gain = dpts >= GATE["field_gain"] or dsw >= GATE["swarm_gain"]
-    reasons.append(f"field {dpts:+.2f} points (needs +{GATE['field_gain']}) or swarm average {dsw:+.3f} (needs +{GATE['swarm_gain']}): "
-                   + ("gain" if gain else "no real gain"))
+    gain = dtotal >= GATE["points_gain"]
+    reasons.append(("ok    " if gain else "FAILED ") + f"total points {dtotal:+.2f} (field {dpts:+.2f}, swarm {dswp:+.2f}); needs +{GATE['points_gain']}")
     keep &= gain
-    for ok, text in [(dpts > -GATE["field_drop"], f"field not worse than -{GATE['field_drop']}: {dpts:+.2f}"),
-                     (worst_fam[0] > -GATE["family_drop"], f"no family worse than -{GATE['family_drop']}: worst {worst_fam[1]} {worst_fam[0]:+.2f}"),
-                     (dsw > -GATE["swarm_drop"], f"swarm average not worse than -{GATE['swarm_drop']}: {dsw:+.3f}"),
-                     (dworst > -GATE["worst10_drop"], f"swarm worst 10% not worse than -{GATE['worst10_drop']}: {dworst:+.3f}"),
+    for ok, text in [(worst_fam[0] > -GATE["family_drop"], f"no family worse than -{GATE['family_drop']} points: worst {worst_fam[1]} {worst_fam[0]:+.2f}"),
+                     (dswp > -GATE["swarm_points_drop"], f"swarm points not worse than -{GATE['swarm_points_drop']}: {dswp:+.2f}"),
+                     (dsw > -GATE["chips_drop"], f"swarm chips not worse than -{GATE['chips_drop']} bb/deal: {dsw:+.3f} (worst 10% {dworst:+.3f}, for information)"),
                      (not flags, "no errors, forfeits or empty time banks")]:
         reasons.append(("ok    " if ok else "FAILED ") + text)
         keep &= ok
@@ -303,7 +313,8 @@ def cmd_gate(a):
     for r in reasons:
         print("  ", r)
     st["last_gate"] = {"verdict": verdict, "params": params, "when": time.strftime("%Y-%m-%d %H:%M"),
-                       "reasons": reasons, "field": round(dpts, 2), "swarm": round(dsw, 3), "worst10": round(dworst, 3)}
+                       "reasons": reasons, "field": round(dpts, 2), "swarm_points": round(dswp, 2),
+                       "swarm": round(dsw, 3), "worst10": round(dworst, 3)}
     if not a.quick:
         st["next_swarm_base"] = base + 100
     _save(st)
@@ -332,7 +343,8 @@ def cmd_promote(a):
     if not sys.stdin.isatty():
         raise SystemExit("promote must be run by a human in a terminal (AGENTS.md: DEFAULT_PARAMS change only "
                          "from a sweep or when a human asks).")
-    print(f"Write {g['params']} into mybot.py DEFAULT_PARAMS? ({g['when']}: field {g['field']:+}, swarm {g['swarm']:+})")
+    print(f"Write {g['params']} into mybot.py DEFAULT_PARAMS? ({g['when']}: field {g['field']:+} points, "
+          f"swarm {g.get('swarm_points', 0):+} points, {g['swarm']:+} bb/deal)")
     if input("Type PROMOTE to confirm: ").strip() != "PROMOTE":
         raise SystemExit("Not promoted.")
     path = os.path.join(ROOT, "mybot.py")

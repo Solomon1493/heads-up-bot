@@ -68,7 +68,8 @@ Before every command, set your name so the dashboard shows your runs:
 ## What the gate checks (for your understanding)
 
 It plays the full field (8 seeds) and 80 random opponent styles that have never been used
-before (a new set every gate). KEEP needs a real gain (field +0.5 points, or swarm average
-+0.08 bb per deal) and nothing worse beyond noise: no opponent family, the swarm average,
-or the swarm's worst 10% of styles. Every run appears in the dashboard's runs list
+before (a new set every gate). The tournament scores points (win 1, chop 0.5, loss 0), so KEEP
+needs at least +1.0 total points (field plus swarm), with nothing worse beyond noise: no
+opponent family down more than 0.5 points, the swarm not down more than 1 point, and the
+swarm's chips per deal not down more than 0.10. Every run appears in the dashboard's runs list
 (http://localhost:8050) with your name on it.
