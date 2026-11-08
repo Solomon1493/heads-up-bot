@@ -310,6 +310,24 @@ UI_PATH = os.path.join(ROOT, "dashboard_ui", "index.html")
 TRACE_PATH = os.path.join(DATA_DIR, "trace", "latest.json")
 
 
+@app.get("/api/trace/match")
+def api_trace_match(bot: str, opponent: str, seed: str):
+    """The cached replay of one exact match, if it has been replayed before."""
+    from tools.runlock import code_hash, trace_cache_path
+    import fastarena
+    path = trace_cache_path(bot, opponent, seed)
+    try:
+        current = code_hash(fastarena.resolve(bot))
+    except SystemExit:
+        current = ""
+    if not os.path.exists(path):
+        return JSONResponse({"error": "not replayed yet", "current_code": current}, 404)
+    with open(path) as f:
+        doc = json.load(f)
+    doc["current_code"] = current
+    return JSONResponse(doc)
+
+
 @app.get("/api/trace")
 def api_trace():
     """Latest tools/trace_v2.py output: every v2 decision with its beliefs and EVs."""
@@ -498,6 +516,7 @@ def _all_runs():
                 "kind": r.get("kind", "field"), "tool": "fastarena.py" if r.get("kind") != "stress" else "stress_v1.py",
                 "bot": str(r.get("bot", "")).removesuffix(".py"), "seeds": r.get("seeds"), "deals": r.get("deals"),
                 "points": r.get("points"), "max_points": r.get("max_points"), "label": "", "opponents": {},
+                "code": r.get("code", ""),
                 "healthy": True}
         if r.get("kind") == "stress":
             base.update(label="time bank stress test", passed=r.get("passed"), worst_bank=r.get("worst_bank"),

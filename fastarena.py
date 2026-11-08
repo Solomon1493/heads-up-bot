@@ -416,7 +416,9 @@ def cmd_field(a):
     with _queued(f"field {os.path.basename(a.bot)}"):
         pts, text = field_table(a.bot, opps, a.seeds, a.deals, a.workers)
     print(text)
+    from tools.runlock import code_hash
     log_run({"kind": "field", "bot": os.path.basename(a.bot), "seeds": a.seeds, "deals": a.deals,
+             "code": code_hash(resolve(a.bot)),
              "points": round(pts, 2), "max_points": len(opps), "rows": field_table.last})
     if a.explain:
         print("\n" + explain.legend_block("field table", explain.FIELD_LEGEND))
@@ -446,15 +448,15 @@ def cmd_swarm(a):
     from zoo import _swarm_bot
     opps = [f"swarm:{a.base + i}" for i in range(a.n)]
     with _queued(f"swarm {os.path.basename(a.bot)} x{a.n}"):
-        pts, text = field_table(a.bot, opps, 1, a.deals, a.workers)
+        pts, text = field_table(a.bot, opps, a.seeds, a.deals, a.workers)
     rows = field_table.last
     for r in rows:
         st = _swarm_bot.draw_style(int(r["opponent"][6:]))
         r["style"], r["describe"] = st, _swarm_bot.describe(st)
     bbs = sorted(r["bb"] for r in rows)
     worst = bbs[:max(1, len(bbs) // 10)]
-    summary = {"mean_bb": round(sum(bbs) / len(bbs), 3), "beaten": sum(r["w"] for r in rows) / len(rows),
-               "lost": sum(r["l"] for r in rows) / len(rows), "worst10_bb": round(sum(worst) / len(worst), 3)}
+    summary = {"mean_bb": round(sum(bbs) / len(bbs), 3), "beaten": sum(r["w"] for r in rows) / (len(rows) * a.seeds),
+               "lost": sum(r["l"] for r in rows) / (len(rows) * a.seeds), "worst10_bb": round(sum(worst) / len(worst), 3)}
     print(f"{a.bot} vs {a.n} random styles (base {a.base}, {a.deals} deals per half):")
     print(f"  average {summary['mean_bb']:+.3f} bb/deal, beat {summary['beaten']:.0%}, lost to {summary['lost']:.0%}, "
           f"worst 10% average {summary['worst10_bb']:+.3f} bb/deal, points {pts:.1f} of {a.n}")
@@ -463,7 +465,8 @@ def cmd_swarm(a):
         print(f"    {r['opponent']:10} {r['bb']:+.2f}  {r['describe']}")
     if a.verbose:
         print(text)
-    log_run({"kind": "swarm", "bot": os.path.basename(a.bot), "seeds": 1, "deals": a.deals, "base": a.base,
+    from tools.runlock import code_hash
+    log_run({"kind": "swarm", "bot": os.path.basename(a.bot), "seeds": a.seeds, "code": code_hash(resolve(a.bot)), "deals": a.deals, "base": a.base,
              "points": round(pts, 2), "max_points": a.n, "summary": summary, "rows": rows})
 
 
@@ -526,6 +529,7 @@ def main(argv=None):
     sw.add_argument("--n", type=int, default=80, help="how many random styles")
     sw.add_argument("--base", type=int, default=0, help="first style seed; change it for never-seen opponents")
     sw.add_argument("--verbose", action="store_true", help="also print every opponent")
+    sw.add_argument("--seeds", type=int, default=1, help="matches per style (more = less noise per style)")
     sw.set_defaults(fn=cmd_swarm, deals=500)
 
     t = sub.add_parser("tournament", parents=[common], help="round robin with tournament scoring")

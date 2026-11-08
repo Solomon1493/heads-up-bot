@@ -113,3 +113,18 @@ def log_run(record):
             f.write(json.dumps(record) + "\n")
     except OSError:
         pass
+
+
+def code_hash(spec_path):
+    """Short fingerprint of a bot file, so a replay can tell whether the code changed since a run."""
+    import hashlib
+    try:
+        with open(spec_path, "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()[:10]
+    except OSError:
+        return ""
+
+
+def trace_cache_path(bot, opponent, seed):
+    safe = lambda x: "".join(c if c.isalnum() or c in "-_" else "_" for c in str(x))
+    return os.path.join(ROOT, "data", "trace", "cache", f"{safe(bot)}__{safe(opponent)}__{safe(seed)}.json")

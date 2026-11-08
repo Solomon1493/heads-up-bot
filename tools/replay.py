@@ -32,7 +32,8 @@ def main(argv=None):
         match = _trace_match((a.bot, a.opponent, a.seed, a.deals))
     bot_mod = fastarena.load_module(fastarena.resolve(a.bot))
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    doc = {"created": stamp, "bot": a.bot, "deals": a.deals, "run": a.run,
+    from tools.runlock import code_hash, trace_cache_path
+    doc = {"created": stamp, "bot": a.bot, "deals": a.deals, "run": a.run, "code": code_hash(fastarena.resolve(a.bot)),
            "params": getattr(bot_mod, "PARAMS", {}),
            "priors": {s: list(v) for s, v in getattr(bot_mod, "PRIORS", {}).items()},
            "matches": [match]}
@@ -41,6 +42,9 @@ def main(argv=None):
     with open(path, "w") as f:
         json.dump(doc, f)
     shutil.copyfile(path, os.path.join(OUT_DIR, "latest.json"))
+    cache = trace_cache_path(a.bot, a.opponent, a.seed)
+    os.makedirs(os.path.dirname(cache), exist_ok=True)
+    shutil.copyfile(path, cache)
     n_err = sum(1 for t in match["decisions"] if "error" in t)
     print(f"{a.bot} vs {a.opponent} ({a.seed}): {match['mean_bb_per_deal']:+.3f} bb/deal, {match['verdict']}, "
           f"{len(match['decisions'])} decisions recorded, {n_err} errors")

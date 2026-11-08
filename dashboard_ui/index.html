@@ -652,13 +652,43 @@ document.addEventListener("keydown", (e) => {
 async function loadTrace() {
   const res = await fetch("/api/trace");
   if (!res.ok) { $("trace-meta").textContent = "No trace yet"; drawDecision(null); return; }
-  state.trace = await res.json();
-  const t = state.trace, created = when(t.created), m0 = t.matches[0];
-  $("trace-meta").textContent = t.matches.length === 1
-    ? `${botName(t.bot)} against ${m0.opponent}, match ${m0.seed}: ${signed(m0.mean_bb_per_deal, 2)} bb per deal (${m0.verdict.replace("AGENT1_WIN", "win").replace("AGENT2_WIN", "loss").replace("CHOP", "chop")}). Replayed ${created}. Arrow keys step through decisions.`
-    : `${botName(t.bot)} against ${t.matches.length} opponents, ${t.deals} deals per half, recorded ${created}`;
-  state.opp = Math.min(state.opp, t.matches.length - 1);
+  showTrace(await res.json(), null);
+}
+function showTrace(doc, run) {
+  state.trace = doc; state.opp = 0; state.idx = Math.min(state.idx, 1e9);
+  const t = doc, created = when(t.created), m0 = t.matches[0];
+  const vword = (v) => v.replace("AGENT1_WIN", "win").replace("AGENT2_WIN", "loss").replace("CHOP", "chop");
+  let meta = t.matches.length === 1
+    ? `${botName(t.bot)} against ${m0.opponent}, ${m0.seed}: ${signed(m0.mean_bb_per_deal, 2)} bb per deal (${vword(m0.verdict)}).`
+    : `${botName(t.bot)} against ${t.matches.length} opponents, recorded ${created}.`;
+  if (run) {
+    meta += ` From the run of ${when(run.timestamp)}.`;
+    if (run.code && t.code && run.code !== t.code) meta += " The bot's code changed after that run, so this shows today's bot on that run's deals.";
+    if (run.tool === "tune.py") meta += " tune.py runs use different deals, so this is the same opponent on fastarena's deals.";
+  } else meta += ` Replayed ${created}.`;
+  $("trace-meta").textContent = meta + " Arrow keys step through decisions.";
   renderAll();
+}
+// Point the replay at a run: the selected opponent (or the run's worst), first seed.
+async function mirror(r) {
+  if (!r || !isField(r)) return;
+  const opps = Object.keys(r.opponents);
+  const o = opps.includes(state.oppSel) ? state.oppSel : opps.reduce((a, b) => (r.opponents[b].bb < r.opponents[a].bb ? b : a));
+  const seed = r.opponents[o].matches?.[0]?.seed || `field-${o}-0`;
+  const key = `${r.bot}|${o}|${seed}`; state.mirrorKey = key;
+  const st = $("replay-status"); st.className = "status";
+  const res = await fetch(`/api/trace/match?bot=${encodeURIComponent(r.bot)}&opponent=${encodeURIComponent(o)}&seed=${encodeURIComponent(seed)}`);
+  if (state.mirrorKey !== key) return;                     // the user clicked something else meanwhile
+  if (res.ok) { st.textContent = ""; state.idx = 0; showTrace(await res.json(), r); return; }
+  const info = await res.json().catch(() => ({}));
+  if (!info.current_code) {                               // the run's bot file no longer resolves
+    $("trace-meta").textContent = `This run used a temporary copy of the bot (${r.bot}), so it cannot be replayed. Pick a run of v1 or v2.`;
+    st.textContent = ""; return; }
+  $("trace-meta").textContent = `${botName(r.bot)} against ${o}, ${seed}: not replayed yet.`;
+  drawDecision(null);
+  if (state.live) { st.innerHTML = `The machine is busy (${esc(state.live.owner)}: ${esc(state.live.tag)}). <button class="btn small" type="button" id="mirror-go">Replay when it is free</button>`;
+    $("mirror-go").onclick = () => replay(r, seed, o); return; }
+  replay(r, seed, o);
 }
 
 // ---------- history and v1 params
@@ -722,7 +752,7 @@ const botName = (b) => BOT_NAME[b] || b;
 const RUN_FILTERS = [["All", "all"], ["v1", "mybot"], ["v2", "mybot_v2"], ["Swarm", "swarm"], ["Stress", "stress"]];
 const isField = (r) => (r.kind === "field" || r.kind === "swarm") && r.opponents && Object.keys(r.opponents).length;
 const famOf = (o) => (o.startsWith("swarm:") ? "S" : state.runsData.family_of[o] || "C");
-const isFull = (r) => isField(r) && r.max_points >= 25 && !r.overridden;
+const isFull = (r) => r.kind === "field" && isField(r) && r.max_points >= 25 && !r.overridden;
 // Every time on the page is shown in US Central time (CST/CDT); the logs store UTC.
 const CT = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "2-digit", day: "2-digit",
   hour: "numeric", minute: "2-digit", timeZoneName: "short" });
@@ -760,7 +790,8 @@ function drawRail() {
       <span class="t">${esc(runTitle(r))}</span><span class="s">${runScore(r)}</span>
       <span class="m">${when(r.timestamp)}, ${esc(r.owner)}${r.seeds ? `, ${r.seeds} seeds` : ""}${r.label && r.kind !== "stress" ? `, ${esc(r.label)}` : ""}${r.healthy ? "" : ', <span class="state-loss">health problem</span>'}</span></button></li>`).join("")
     : '<li class="empty">No runs of this kind yet.</li>');
-  $("runlist").querySelectorAll("button[data-id]").forEach((b) => { b.onclick = () => { state.sel = b.dataset.id; state.base = null; drawRail(); drawDetail(); }; });
+  $("runlist").querySelectorAll("button[data-id]").forEach((b) => { b.onclick = () => { state.sel = b.dataset.id; state.base = null; drawRail(); drawDetail();
+    mirror(state.runsData.runs.find((x) => x.id === state.sel)); }; });
 }
 function drawState() {
   const runs = state.runsData.runs;
@@ -826,10 +857,11 @@ function drawDetail() {
   box.innerHTML = html;
   box.querySelectorAll("tr.opp").forEach((tr) => {
     const pick = () => { state.oppSel = state.oppSel === tr.dataset.opp ? null : tr.dataset.opp; drawDetail();
+      if (state.oppSel) mirror(r);
       if (state.oppSel) $("drill")?.scrollIntoView({ block: "nearest" }); };
     tr.onclick = pick; tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
   });
-  box.querySelectorAll("button[data-seed]").forEach((b) => { b.onclick = () => replay(r, b.dataset.seed); });
+  box.querySelectorAll("button[data-seed]").forEach((b) => { b.onclick = () => replay(r, b.dataset.seed, state.oppSel); });
   $("base-sel").onchange = (e) => { state.base = e.target.value || null; drawDetail(); };
   box.querySelectorAll("tr.fam").forEach((tr) => {
     const toggle = () => { const f = tr.dataset.fam; state.openFam.has(f) ? state.openFam.delete(f) : state.openFam.add(f); drawDetail(); };
@@ -868,22 +900,23 @@ function drill(r, o, base) {
       <b class="state-loss">${signed(h.net, 0)}</b></div><div class="line">${esc(h.position)}, ${h.showdown ? "showdown" : "no showdown"}: ${esc(h.line)}</div></div>`).join("") || '<p class="note">No losing hands.</p>'}`;
   return head + seeds + `<div class="cols"><div>${buckets}</div><div>${worst}</div></div></div>`;
 }
-async function replay(r, seed) {
+async function replay(r, seed, opp) {
+  opp = opp || state.oppSel;
   const sec = $("replay-sec"), st = $("replay-status");
   const res = await fetch("/api/replay", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ bot: r.bot, opponent: state.oppSel, seed, deals: r.deals || 1000, run: r.id }) });
+    body: JSON.stringify({ bot: r.bot, opponent: opp, seed, deals: r.deals || 1000, run: r.id }) });
   const d = await res.json();
   if (!res.ok) { st.className = "status err"; st.textContent = d.status === "already_running" ? "Another dashboard run is in progress; try again when it finishes." : d.error; return; }
-  st.className = "status"; st.textContent = `Replaying ${botName(r.bot)} against ${state.oppSel}, ${seed}. Waits its turn if the machine is busy; usually under a minute.`;
-  sec.scrollIntoView({ block: "start" });
+  st.className = "status"; st.textContent = `Replaying ${botName(r.bot)} against ${opp}, ${seed}. Waits its turn if the machine is busy; usually under a minute.`;
   const before = state.trace?.created;
   const poll = setInterval(async () => {
     const s = await (await fetch("/api/status")).json();
     if (s.running) { st.textContent = s.queued ? `Waiting for the machine: ${s.queue_holder.owner} is running ${s.queue_holder.tag}.` : `Replaying, ${Math.round(s.elapsed_seconds)}s`; return; }
     clearInterval(poll);
-    state.opp = 0; state.idx = 0; await loadTrace();
-    if (state.trace?.created === before) { st.className = "status err"; st.textContent = "The replay did not finish. The last lines are in data/last_run.log."; }
-    else st.textContent = "";
+    state.idx = 0;
+    const got = await fetch(`/api/trace/match?bot=${encodeURIComponent(r.bot)}&opponent=${encodeURIComponent(opp)}&seed=${encodeURIComponent(seed)}`);
+    if (!got.ok) { st.className = "status err"; st.textContent = "The replay did not finish. The last lines are in data/last_run.log."; }
+    else { st.textContent = ""; showTrace(await got.json(), r); }
   }, 2000);
 }
 async function drawStressRows() {
@@ -938,6 +971,7 @@ state.openFam = new Set();
   if (h.has("opp")) state.opp = +h.get("opp"); if (h.has("half")) state.half = +h.get("half"); if (h.has("i")) state.idx = +h.get("i");
   loadRuns(); pollQueue(); setInterval(pollQueue, 3000); setInterval(loadRuns, 30000);
   await loadTrace(); loadParams();
+  const waitRuns = setInterval(() => { if (state.runsData) { clearInterval(waitRuns); mirror(state.runsData.runs.find((x) => x.id === state.sel)); } }, 200);
   setupLogToggle(); loadChangelog(); setInterval(loadChangelog, 20000); })();
 </script>
 </body>
