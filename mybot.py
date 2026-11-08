@@ -19,7 +19,7 @@ from game import Action, Street
 from botlib.equity import mc_equity, preflop_features, hole_masks, board_masks, score_masks
 from evaluator import NUM_CARDS, get_table
 
-TIME_BUDGET = 4.0          # seconds of our own compute per half
+TIME_BUDGET = 3.25         # seconds of our own compute per half (simulation stops early on clear decisions)
 EXPECTED_DECISIONS = 2600  # rough decisions per half, for pacing
 MIN_ITERS, MAX_ITERS = 8, 120
 # The judge charges the whole request, not just our compute: HTTP/JSON/framework overhead is
@@ -197,6 +197,33 @@ def _bluff_heavy(memory):
     return memory["big_call_net"] > 0
 
 
+def _thresholds(obs, P, pot_odds):
+    """Every equity cut this decision might compare against (see the scenarios in _strategy)."""
+    if obs.to_call == 0:
+        return (P["eq_raise_half"], P["eq_raise_pot"], P["tight_probe_min_eq"], P["eq_bluff_min"])
+    return (pot_odds, pot_odds + P["tight_call_penalty"], pot_odds - P["aggro_margin"], pot_odds - 0.10,
+            pot_odds + 0.25, 0.58, 0.65, 0.18, 0.14, 0.84, 0.92)
+
+
+def _equity_until_clear(hole, board, k, n_max, cuts, rng, batch=16):
+    """Simulate in batches; stop once the estimate is clearly (2.5 standard errors) away from every
+    cut the decision uses, since more samples cannot change the choice. Close calls still get up
+    to n_max samples. Returns (equity, samples used)."""
+    if n_max <= 0:
+        return 0.5, 0
+    total, used = 0.0, 0
+    while used < n_max:
+        m = min(batch, n_max - used)
+        e = _bestk_equity(hole, board, k, rng, m) if k > 1 else mc_equity(hole, board, m, rng)
+        total += e * m
+        used += m
+        p = total / used
+        se = max(0.02, (p * (1 - p) / used) ** 0.5)
+        if used >= batch and all(abs(p - c) > 2.5 * se for c in cuts):
+            break
+    return total / used, used
+
+
 def _opp_k(obs, memory, maniac):
     """How many random hands the opponent's bet is worth, learned from how often they make
     this bet: if they bet this size on f of the flops (or turns) they could, the bet holds
@@ -335,12 +362,11 @@ def _strategy(obs, memory):
     t0 = time.perf_counter()
     if river_bet:
         eq = _range_equity_river(obs.hole_cards, obs.board, _river_bet_share(memory), memory["rng"])
-    elif k > 1:                      # flop/turn facing a bet: their betting range, not a random hand
-        eq = _bestk_equity(obs.hole_cards, obs.board, k, memory["rng"], n)
-    else:
-        eq = mc_equity(obs.hole_cards, obs.board, n, memory["rng"])
-    if n and k == 1:
-        memory["sec_per_iter"] = 0.8 * memory["sec_per_iter"] + 0.2 * (time.perf_counter() - t0) / n
+    else:                            # flop/turn: vs a random hand, or vs their betting range (k > 1)
+        eq, used = _equity_until_clear(obs.hole_cards, obs.board, k, n, _thresholds(obs, P, pot_odds), memory["rng"])
+        if used and k == 1:
+            memory["sec_per_iter"] = 0.8 * memory["sec_per_iter"] + 0.2 * (time.perf_counter() - t0) / used
+        n = used
 
     if TRACE is not None:
         memory["_why"] = {"method": "river" if river_bet else "bestk" if k > 1 else "random", "eq": round(eq, 4),
