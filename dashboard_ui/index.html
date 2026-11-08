@@ -125,7 +125,9 @@ td.strip { width: 34%; min-width: 180px; padding-top: 4px; padding-bottom: 4px; 
 table.res tr.opp { cursor: pointer; }
 table.res tr.opp:hover td { background: var(--surface); }
 table.res tr.opp[aria-expanded="true"] td { background: var(--track); }
-.drill { background: var(--surface); border-radius: 12px; padding: 18px 22px 20px; margin: 18px 0 0; }
+.drill { background: var(--surface); border-radius: 10px; padding: 14px 18px 16px; margin: 2px 0 10px; }
+tr.drill-row > td { padding: 0 0 0 30px; border-bottom: 1px solid var(--rule); }
+tr.drill-row:hover td { background: none; }
 .drill h3 { margin: 0; font-size: 16px; font-weight: 600; }
 .drill h4 { margin: 18px 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .drill .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
@@ -852,13 +854,11 @@ function drawDetail() {
         return `<tr class="opp" tabindex="0" data-opp="${esc(o)}" aria-expanded="${state.oppSel === o}" data-in="${f}"${open ? "" : " hidden"}><td style="padding-left:38px">${esc(o)}${x.describe ? `<div class="muted" style="font-size:12px">${esc(x.describe)}</div>` : ""}</td><td class="num">${verdict(x)}</td>
           <td class="num">${signed(x.bb, 2)}</td><td class="num dl">${b ? dSpan(x.bb - b.bb) : ""}</td>
           <td class="num ${x.flags ? "state-loss" : ""}">${(+x.max_s).toFixed(2)}${x.flags ? ` ${esc(x.flags)}` : ""}</td>
-          <td class="strip">${strip(x, lim)}</td></tr>`; }).join(""); }).join("")}</tbody></table>`;
-  if (state.oppSel && r.opponents[state.oppSel]) html += drill(r, state.oppSel, base);
+          <td class="strip">${strip(x, lim)}</td></tr>${state.oppSel === o ? `<tr class="drill-row"><td colspan="6">${drill(r, o, base)}</td></tr>` : ""}`; }).join(""); }).join("")}</tbody></table>`;
   box.innerHTML = html;
   box.querySelectorAll("tr.opp").forEach((tr) => {
     const pick = () => { state.oppSel = state.oppSel === tr.dataset.opp ? null : tr.dataset.opp; drawDetail();
-      if (state.oppSel) mirror(r);
-      if (state.oppSel) $("drill")?.scrollIntoView({ block: "nearest" }); };
+      if (state.oppSel) mirror(r); };
     tr.onclick = pick; tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
   });
   box.querySelectorAll("button[data-seed]").forEach((b) => { b.onclick = () => replay(r, b.dataset.seed, state.oppSel); });
