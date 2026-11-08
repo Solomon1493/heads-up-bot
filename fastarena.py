@@ -260,11 +260,20 @@ def _job(args):
     return _summary(*args)
 
 
-def run_many(jobs, workers):
+def run_many(jobs, workers, what=""):
+    from tools.runlock import set_progress
+    out = []
+    set_progress(0, len(jobs), what)
     if workers <= 1 or len(jobs) == 1:
-        return [_job(j) for j in jobs]
+        for j in jobs:
+            out.append(_job(j))
+            set_progress(len(out), len(jobs), what)
+        return out
     with ProcessPoolExecutor(max_workers=workers) as ex:
-        return list(ex.map(_job, jobs))
+        for r in ex.map(_job, jobs):
+            out.append(r)
+            set_progress(len(out), len(jobs), what)
+    return out
 
 
 def _flags(st):
@@ -311,11 +320,12 @@ def cmd_match(a):
 
 def field_table(bot, opponents, seeds, deals, workers):
     jobs = [(bot, opp, f"field-{opp}-{s}", deals) for opp in opponents for s in range(seeds)]
-    results = run_many(jobs, workers)
+    results = run_many(jobs, workers, f"{os.path.basename(bot)} vs field")
     lines = [f"{bot} vs field: {seeds} match(es) per opponent, {deals} deals per half",
              f"{'opponent':22} {'W':>3} {'C':>3} {'L':>3} {'points':>7} {'bb/deal':>9} "
              f"{'CI half-width':>13} {'my max s':>8}  flags"]
     total_pts = 0.0
+    rows = []
     for opp in opponents:
         rs = [r for r in results if r["b"] == opp]
         w = sum(r["points"]["agent1"] == 1.0 for r in rs)
@@ -328,28 +338,47 @@ def field_table(bot, opponents, seeds, deals, workers):
         mt = max(r["agent1"]["max_time"] for r in rs)
         flags = ";".join(sorted({_flags(r["agent1"]) for r in rs} - {""}))
         lines.append(f"{opp:22} {w:3d} {c:3d} {l:3d} {pts:7.2f} {mean:+9.3f} {hw:13.3f} {mt:8.2f}  {flags}")
+        rows.append({"opponent": opp, "w": w, "c": c, "l": l, "points": round(pts, 3),
+                     "bb": round(mean, 3), "max_s": round(mt, 2), "flags": flags})
     lines.append(f"Expected points vs this field: {total_pts:.2f} of {len(opponents)}")
+    field_table.last = rows
     lines += _health_lines(results)
     return total_pts, "\n".join(lines)
 
 
+def _queued(tag):
+    """Take the shared run queue for a command-line run (tune.py/export already hold it)."""
+    from tools.runlock import run_lock
+    return run_lock(owner=os.environ.get("RUN_OWNER", "fastarena.py (terminal)"), tag=tag)
+
+
 def cmd_field(a):
+    from tools.runlock import log_run
     opps = a.opponents.split(",") if a.opponents else [z for z in zoo_specs() if z != a.bot]
-    print(field_table(a.bot, opps, a.seeds, a.deals, a.workers)[1])
+    with _queued(f"field {os.path.basename(a.bot)}"):
+        pts, text = field_table(a.bot, opps, a.seeds, a.deals, a.workers)
+    print(text)
+    log_run({"kind": "field", "bot": os.path.basename(a.bot), "seeds": a.seeds, "deals": a.deals,
+             "points": round(pts, 2), "max_points": len(opps), "rows": field_table.last})
     if a.explain:
         print("\n" + explain.legend_block("field table", explain.FIELD_LEGEND))
 
 
 def cmd_ab(a):
     opps = a.opponents.split(",") if a.opponents else [z for z in zoo_specs() if z not in (a.bot1, a.bot2)]
-    p1, t1 = field_table(a.bot1, opps, a.seeds, a.deals, a.workers)
-    p2, t2 = field_table(a.bot2, opps, a.seeds, a.deals, a.workers)
+    with _queued(f"ab {os.path.basename(a.bot1)} vs {os.path.basename(a.bot2)}"):
+        p1, t1 = field_table(a.bot1, opps, a.seeds, a.deals, a.workers)
+        p2, t2 = field_table(a.bot2, opps, a.seeds, a.deals, a.workers)
+        res = run_many([(a.bot1, a.bot2, f"ab-{s}", a.deals) for s in range(a.seeds)], a.workers, "head to head")
     print(t1 + "\n\n" + t2)
-    res = run_many([(a.bot1, a.bot2, f"ab-{s}", a.deals) for s in range(a.seeds)], a.workers)
     hh = sum(r["points"]["agent1"] for r in res) / len(res)
     print(f"\nHead to head: {a.bot1} scores {hh:.2f} points per match vs {a.bot2}")
     print(f"Field points: {a.bot1} {p1:.2f} vs {a.bot2} {p2:.2f}  "
           f"(difference {p1 - p2:+.2f}; with few seeds, treat <0.5 as noise)")
+    from tools.runlock import log_run
+    log_run({"kind": "ab", "bot": os.path.basename(a.bot1), "vs": os.path.basename(a.bot2), "seeds": a.seeds,
+             "deals": a.deals, "points": round(p1, 2), "points_vs": round(p2, 2), "max_points": len(opps),
+             "head_to_head": round(hh, 3)})
 
 
 def cmd_tournament(a):

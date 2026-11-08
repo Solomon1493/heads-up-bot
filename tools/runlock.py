@@ -82,3 +82,34 @@ def run_lock(owner, tag="", poll=3.0):
                     os.remove(LOCK_PATH)
         except (FileNotFoundError, json.JSONDecodeError):
             pass
+
+
+def set_progress(done, total, what=""):
+    """Record progress on the lock this process holds, so the dashboard can show it."""
+    try:
+        with open(LOCK_PATH) as f:
+            info = json.load(f)
+        if info.get("pid") != os.getpid():
+            return
+        info.update(done=done, total=total, what=what)
+        tmp = LOCK_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(info, f)
+        os.replace(tmp, LOCK_PATH)
+    except (OSError, ValueError):
+        pass
+
+
+RUNS_PATH = os.path.join(ROOT, "data", "runs.jsonl")
+
+
+def log_run(record):
+    """Append one finished run (any tool, any agent) to data/runs.jsonl for the dashboard."""
+    try:
+        record = dict(record, timestamp=time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()),
+                      owner=record.get("owner") or os.environ.get("RUN_OWNER", "terminal"))
+        os.makedirs(os.path.dirname(RUNS_PATH), exist_ok=True)
+        with open(RUNS_PATH, "a") as f:
+            f.write(json.dumps(record) + "\n")
+    except OSError:
+        pass

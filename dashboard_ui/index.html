@@ -50,22 +50,78 @@ header .spacer { flex: 1; }
 .btn:disabled { opacity: .5; cursor: default; }
 
 
-/* scoreboard + queue */
-.board { background: var(--surface); border-radius: 14px; padding: 22px 30px 18px; margin-top: 8px; }
-.board-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 28px; margin-bottom: 14px; }
-.board-head h2 { margin: 0; font-size: 18px; font-weight: 600; }
-.board-head .spacer { flex: 1; }
-.totals { display: flex; gap: 40px; flex-wrap: wrap; margin: 4px 0 14px; }
-.total .name { color: var(--muted); font-size: 13px; }
-.total .pts { font-size: 30px; font-weight: 600; line-height: 1.1; }
-.total .pts small { font-size: 15px; color: var(--muted); font-weight: 400; }
-.total .when { color: var(--muted); font-size: 12px; }
-.board table td .w { font-size: 12px; margin-left: 6px; }
-.board tr.fam td { background: var(--base); border-bottom: 1px solid var(--rule); }
 .queue { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .queue .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--prior); }
 .queue.busy .dot { background: var(--cobalt); }
 .queue.busy { color: var(--ink); }
+
+
+/* state line */
+.stateline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 28px; padding: 14px 0 18px; border-bottom: 1px solid var(--rule); }
+.stat .k { color: var(--muted); font-size: 12px; display: block; }
+.stat .v { font-size: 22px; font-weight: 600; line-height: 1.2; }
+.stat .v small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+.stateline .spacer { flex: 1; }
+.stateline .acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* runs layout */
+.lab { display: grid; grid-template-columns: 300px 1fr; gap: 0 32px; margin-top: 18px; align-items: start; }
+@media (max-width: 900px) { .lab { grid-template-columns: 1fr; } }
+.rail { position: sticky; top: 12px; max-height: calc(100vh - 24px); display: flex; flex-direction: column; }
+@media (max-width: 900px) { .rail { position: static; max-height: 360px; } }
+.rail h2 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+.rail .seg { margin-bottom: 8px; }
+.runlist { overflow-y: auto; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
+.runlist button { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; width: 100%; text-align: left; background: none;
+  border: 0; border-bottom: 1px solid var(--rule); padding: 8px 8px; cursor: pointer; }
+.runlist button:hover { background: var(--surface); }
+.runlist button[aria-current="true"] { background: var(--surface); box-shadow: inset 3px 0 0 var(--cobalt); }
+.runlist .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runlist .s { font-weight: 600; text-align: right; }
+.runlist .m { color: var(--muted); font-size: 12px; grid-column: 1 / -1; }
+.runlist .live { cursor: default; }
+.runlist .live .t::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--cobalt); margin-right: 8px; }
+.detail-head .meta { color: var(--muted); margin: 0; }
+.detail-head h2 { margin: 2px 0 0; font-size: 18px; font-weight: 600; }
+.bignum { display: flex; flex-wrap: wrap; gap: 8px 36px; align-items: baseline; margin: 14px 0 10px; }
+.bignum .v { font-size: 34px; font-weight: 600; line-height: 1.1; }
+.bignum .v small { font-size: 15px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+.bignum .d { font-size: 18px; font-weight: 600; }
+.basepick { color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-bottom: 14px; }
+.basepick select { max-width: 100%; padding: 3px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+table.res tr.fam td { background: var(--surface); }
+table.res tr.fam { cursor: pointer; }
+table.res tr.fam td:first-child::before { content: "\25B8"; display: inline-block; width: 16px; color: var(--muted); }
+table.res tr.fam[aria-expanded="true"] td:first-child::before { content: "\25BE"; }
+table.res td .w { font-size: 12px; margin-left: 6px; }
+table.res .dl { font-size: 13px; }
+.note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+
+/* changelog */
+.log { margin-top: 18px; }
+.log-entry { border-top: 1px solid var(--rule); }
+.log-entry > summary { display: flex; gap: 14px; align-items: baseline; padding: 9px 0; cursor: pointer; list-style: none; white-space: nowrap; overflow: hidden; }
+.log-entry > summary::-webkit-details-marker { display: none; }
+.log-entry > summary::before { content: "\25B8"; color: var(--muted); transition: transform .15s; }
+.log-entry[open] > summary::before { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .log-entry > summary::before { transition: none; } }
+.log-entry > summary:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
+.log-meta { color: var(--muted); font-size: 12px; flex: none; }
+.log-meta .who { padding: 1px 8px; border-radius: 999px; background: var(--track); color: var(--ink); }
+.log-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.log-sum-result { flex: none; font-size: 13px; font-weight: 600; }
+.log-body { padding: 2px 0 14px 24px; }
+.log-row { margin: 0 0 4px; max-width: 90ch; }
+.log-row b { font-weight: 600; color: var(--muted); font-size: 12px; margin-right: 6px; }
+.log-result { margin-top: 6px; font-size: 14px; }
+.log-result .after { font-weight: 600; }
+.log-toggle { background: none; border: 0; padding: 0; font: inherit; color: var(--muted); cursor: pointer; text-decoration: underline; }
+.log-toggle:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
+@media (max-width: 760px) { .log-sum-result { display: none; }
+  .log-entry > summary { flex-wrap: wrap; white-space: normal; gap: 2px 10px; }
+  .log-title { flex-basis: 100%; white-space: normal; }
+  #history { overflow-x: auto; } .log-filter { margin-left: 0; } }
+.log-filter { margin-left: auto; }
 
 /* hero: the decision */
 .hero { background: var(--surface); border-radius: 14px; padding: 26px 30px 30px; margin-top: 8px; }
@@ -112,7 +168,7 @@ header .spacer { flex: 1; }
 .ev-note { font-size: 12px; color: var(--muted); margin: 10px 0 0 10px; }
 
 /* replay (sticky) */
-.replay { position: sticky; bottom: 0; z-index: 5; margin-top: 18px; }
+.replay { margin-top: 12px; }
 .replay .inner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--surface);
   border: 1px solid var(--rule); border-radius: 12px; padding: 10px 14px; box-shadow: 0 6px 18px rgba(18,35,58,.08); }
 .replay input[type=range] { flex: 1; min-width: 160px; accent-color: var(--cobalt); }
@@ -167,26 +223,37 @@ footer { height: 60px; }
 <body>
 <header><div class="wrap">
   <h1>Bot lab</h1>
-  <span class="muted" id="trace-meta">Loading the latest trace</span>
   <span class="spacer"></span>
-  <div class="seg" id="opp-seg" role="group" aria-label="Opponent"></div>
   <button class="btn" id="theme-btn" type="button" aria-label="Switch light or dark theme">Theme</button>
 </div></header>
 
 <main class="wrap">
-  <section class="board" aria-labelledby="h-board">
-    <div class="board-head">
-      <h2 id="h-board">Scoreboard</h2>
-      <span class="muted">Latest full-field run per bot: every opponent, tournament scoring.</span>
-      <span class="spacer"></span>
+  <div class="stateline" aria-label="Current state">
+    <div class="stat"><span class="k">v1, shipped in agent.py</span><span class="v" id="st-v1">-</span></div>
+    <div class="stat"><span class="k">v2, in development</span><span class="v" id="st-v2">-</span></div>
+    <div class="stat"><span class="k">Time bank under load</span><span class="v" id="st-bank">-</span></div>
+    <span class="spacer"></span>
+    <div class="acts">
       <span class="queue" id="queue"><span class="dot"></span><span id="queue-text">Machine idle</span></span>
       <button class="btn" id="board-run" type="button">Re-measure both bots</button>
+      <button class="btn" id="stress-run" type="button">Run stress test</button>
     </div>
-    <div class="totals" id="totals"></div>
-    <div id="board-table"></div>
-    <div class="status" id="board-status"></div>
-  </section>
+  </div>
+  <div class="status" id="board-status" aria-live="polite"></div>
 
+  <div class="lab">
+    <aside class="rail" aria-labelledby="h-runs">
+      <h2 id="h-runs">Runs</h2>
+      <div class="seg" id="run-filter" role="group" aria-label="Filter runs"></div>
+      <ul class="runlist" id="runlist"></ul>
+    </aside>
+    <section id="detail" aria-live="polite"></section>
+  </div>
+
+  <details class="section" id="replay-sec">
+    <summary>Decision replay (v2 trace)</summary>
+    <p class="sub" id="trace-meta">Loading the latest trace</p>
+    <div class="seg" id="opp-seg" role="group" aria-label="Opponent"></div>
   <section class="hero" aria-live="polite">
     <p class="where" id="where">No trace yet</p>
     <h2 class="focal" id="focal">Run a traced match to watch the model think</h2>
@@ -220,7 +287,7 @@ footer { height: 60px; }
     </div>
   </div>
 
-  <div class="section tools">
+  <div class="section">
     <div class="col">
       <h2>Run a traced match</h2>
       <p class="sub">Plays the v2 bot against the opponents you pick and records every decision. About a minute for 300 deals.</p>
@@ -230,12 +297,21 @@ footer { height: 60px; }
         <button class="btn primary" id="trace-run" type="button" style="margin-left:10px">Run traced match</button></p>
       <div class="status" id="trace-status"></div>
     </div>
-    <div class="col">
-      <h2>Tuning history</h2>
-      <p class="sub">Runs logged by tune.py. Score is the sum of bb/deal per opponent, each capped at 3.</p>
-      <div id="history"></div>
-    </div>
   </div>
+
+
+  </details>
+
+  <section class="section" aria-labelledby="h-log">
+    <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 18px">
+      <h2 id="h-log" style="margin:0">Changelog</h2>
+      <span class="muted">Every iteration: what changed, why, and what it did to the score. Newest first.</span>
+      <div class="seg log-filter" id="log-seg" role="group" aria-label="Filter changelog"></div>
+      <button class="log-toggle" id="log-toggle" aria-controls="log" aria-expanded="true">Hide</button>
+    </div>
+    <div class="log" id="log"></div>
+  </section>
+
 
   <details class="section">
     <summary>v1 thresholds (the bot in agent.py today)</summary>
@@ -514,30 +590,28 @@ function setupTraceRunner() {
     const data = await res.json();
     if (!res.ok) { st.className = "status err"; st.textContent = data.status === "already_running" ?
       "Another run is in progress. Try again when it finishes." : data.error; return; }
+    const before = state.trace?.created;
     st.className = "status"; st.textContent = "Recording decisions..."; $("trace-run").disabled = true;
     const poll = setInterval(async () => {
       const s = await (await fetch("/api/status")).json();
-      if (s.running) { st.textContent = `Recording decisions, ${Math.round(s.elapsed_seconds)}s`; return; }
+      if (s.running) { st.textContent = s.queued ? `Waiting for the machine: ${s.queue_holder.owner} is running ${s.queue_holder.tag || "a job"}.` : `Recording decisions, ${Math.round(s.elapsed_seconds)}s`; return; }
       clearInterval(poll); $("trace-run").disabled = false;
       const log = (await (await fetch("/api/last-log")).json()).log;
       if (/raised exceptions|Traceback/.test(log)) { st.className = "status err";
         st.textContent = "Trace failed: some decisions raised errors, so the bot would have silently checked. Details are in data/last_run.log.";
-      } else { st.className = "status"; st.textContent = "Done. Showing the new trace."; }
+      } else {
+        await loadTrace();
+        if (state.trace?.created === before) { st.className = "status err";
+          st.textContent = "No new trace was recorded: the run stopped before finishing (for example, the dashboard restarted). The last lines are in data/last_run.log. Press Run traced match again.";
+        } else { st.className = "status"; st.textContent = "Done. Showing the new trace."; }
+        return;
+      }
       await loadTrace();
     }, 2000);
   };
 }
 
 // ---------- history and v1 params
-async function loadHistory() {
-  const rows = await (await fetch("/api/experiments")).json(), box = $("history");
-  if (!rows.length) { box.innerHTML = '<div class="empty">No tuning runs yet. Run <b>python tune.py run</b> to log one.</div>'; return; }
-  box.innerHTML = `<table><thead><tr><th>When (UTC)</th><th>Tag</th><th class="num">Points</th><th class="num">Score</th><th>Health</th></tr></thead><tbody>${
-    rows.slice(-8).reverse().map((r) => `<tr><td>${esc((r.timestamp || "").slice(5, 16).replace("T", " "))}</td><td>${esc(r.tag || "")}</td>
-      <td class="num">${r.field.total_points.toFixed(2)} / ${r.field.max_points}</td>
-      <td class="num">${r.field.score_bb != null ? r.field.score_bb.toFixed(2) : "-"}</td>
-      <td class="${r.health.safe ? "state-gain" : "state-loss"}">${r.health.safe ? "OK" : "Problem"}</td></tr>`).join("")}</tbody></table>`;
-}
 async function loadParams() {
   const data = await (await fetch("/api/current-params")).json(), box = $("params"); box.replaceChildren();
   Object.entries(data.params || {}).forEach(([k, v]) => { const l = document.createElement("label");
@@ -559,7 +633,7 @@ $("p-test").onclick = async () => {
   const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tag: "param-test", seeds: 1, deals: 500, params }) });
   const d = await res.json(), st = $("p-status"); st.className = res.ok ? "status" : "status err";
-  st.textContent = res.ok ? "Testing these values (mybot.py unchanged). The result appears in Tuning history." :
+  st.textContent = res.ok ? "Testing these values (mybot.py unchanged). The result appears in Runs." :
     (d.status === "already_running" ? "Another run is in progress; try again when it finishes." : d.error);
 };
 $("p-save").onclick = async () => {
@@ -570,55 +644,179 @@ $("p-save").onclick = async () => {
 };
 
 
-// ---------- scoreboard + shared queue
-const BOT_LABEL = { mybot: "v1, in agent.py", mybot_v2: "v2, in development" };
-const verdictOf = (o) => o.wins === o.wins + o.chops + o.losses ? "win" : (o.losses ? (o.wins ? "mixed" : "loss") : (o.wins ? "mixed" : "chop"));
-async function loadScoreboard() {
-  const sb = await (await fetch("/api/scoreboard")).json();
-  const rows = sb.bots, famOf = sb.family_of, famName = sb.family_names;
-  $("totals").innerHTML = rows.map((r) => {
-    if (!r.timestamp) return `<div class="total"><div class="name">${BOT_LABEL[r.bot] || r.bot}</div><div class="pts"><small>not measured yet</small></div></div>`;
-    const share = r.field.families?.weighted_share;
-    return `<div class="total"><div class="name">${BOT_LABEL[r.bot] || r.bot}</div>
-      <div class="pts">${share != null ? pct(share) : r.field.total_points.toFixed(2)} <small>${share != null ? "weighted score" : "points"}</small></div>
-      <div class="when">${r.field.total_points.toFixed(2)} of ${r.field.max_points} points, ${r.timestamp.slice(5, 16).replace("T", " ")} UTC, ${r.field.seeds} seeds x ${r.field.deals} deals${r.health.safe === false ? ', <span class="state-loss">health problem</span>' : ""}</div></div>`;
-  }).join("");
-  const have = rows.filter((r) => r.timestamp);
-  if (!have.length) { $("board-table").innerHTML = '<div class="empty">No full-field runs yet. Press Re-measure both bots.</div>'; return; }
-  const opps = [...new Set(have.flatMap((r) => Object.keys(r.field.opponents)))];
-  const groups = {};
-  opps.forEach((o) => { const f = famOf[o] || "C"; (groups[f] = groups[f] || []).push(o); });
-  const cell = (r, o) => { const x = r.timestamp && r.field.opponents[o]; if (!x) return '<td class="num muted">-</td>';
-    const n = x.wins + x.chops + x.losses, word = x.wins === n ? "win" : x.losses === n ? "loss" : x.chops === n ? "chop" : `${x.wins}W ${x.chops}C ${x.losses}L`;
-    const cls = x.wins === n ? "state-gain" : x.losses === n ? "state-loss" : "muted";
-    return `<td class="num">${signed(x.mean_bb_deal, 2)}<span class="w ${cls}">${word}</span></td>`; };
-  const famCell = (r, f) => { const x = r.timestamp && r.field.families?.[f]; return x ? `<td class="num"><b>${x.points.toFixed(1)} of ${x.max}</b></td>` : '<td class="num muted">-</td>'; };
-  $("board-table").innerHTML = `<table><thead><tr><th>Opponent</th>${rows.map((r) => `<th class="num">${BOT_LABEL[r.bot] || r.bot}</th>`).join("")}</tr></thead><tbody>${
-    Object.keys(groups).sort().map((f) => `<tr class="fam"><td><b>${f}. ${esc(famName[f] || "")}</b> <span class="muted">weight ${pct(sb.weights[f] || 0)}</span></td>${rows.map((r) => famCell(r, f)).join("")}</tr>` +
-      groups[f].map((o) => `<tr><td style="padding-left:22px">${esc(o)}</td>${rows.map((r) => cell(r, o)).join("")}</tr>`).join("")).join("")}</tbody></table>`;
-}
+// ---------- shared queue
 async function pollQueue() {
   try {
     const s = await (await fetch("/api/status")).json(), h = s.queue_holder;
     $("queue").classList.toggle("busy", !!h);
-    $("queue-text").textContent = h ? `Running now: ${h.owner}, ${h.tag} (${Math.round(h.elapsed_seconds)}s)${s.queued ? ". Your run is queued next." : ""}` : "Machine idle";
-    $("board-run").disabled = s.running;
-    if (state.wasBoardRun && !s.running) { state.wasBoardRun = false; $("board-status").textContent = "Scoreboard updated."; loadScoreboard(); loadHistory(); }
+    $("queue-text").textContent = h ? `${h.owner} is running ${h.tag}${h.total ? `: ${h.done} of ${h.total} matches` : ""} (${Math.round(h.elapsed_seconds)}s)${s.queued ? ". Your run is queued next." : ""}` : "Machine idle";
+    state.live = h;
+    if (state.lastHolder && !h) { loadRuns(); $("board-status").textContent = ""; }
+    else drawRail();
+    state.lastHolder = h;
+    $("board-run").disabled = s.running; $("stress-run").disabled = s.running;
   } catch {}
 }
-$("board-run").onclick = async () => {
-  const res = await fetch("/api/scoreboard/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seeds: 2 }) });
+async function startJob(url, body, msg) {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
   const d = await res.json(), st = $("board-status");
-  if (!res.ok) { st.className = "status err"; st.textContent = d.status === "already_running" ? "A dashboard run is already in progress." : d.error; return; }
-  st.className = "status"; st.textContent = "Measuring v1, then v2, on every opponent (about a minute each). It waits its turn if another run holds the machine.";
-  state.wasBoardRun = true; pollQueue();
-};
+  if (!res.ok) { st.className = "status err"; st.textContent = d.status === "already_running" ? "A dashboard run is already in progress. It appears at the top of Runs." : d.error; return; }
+  st.className = "status"; st.textContent = msg; pollQueue();
+}
+$("board-run").onclick = () => startJob("/api/scoreboard/run", { seeds: 2 }, "Measuring v1, then v2, on every opponent (about a minute each). Each result appears in Runs when it finishes.");
+$("stress-run").onclick = () => startJob("/api/stress/run", {}, "Playing the shipped bot over HTTP at four CPU load levels (about two minutes). The result appears in Runs.");
 
+// ---------- runs: one list from every tool; the selected run fills the main area
+const BOT_NAME = { mybot: "v1", mybot_v2: "v2" };
+const botName = (b) => BOT_NAME[b] || b;
+const RUN_FILTERS = [["All", "all"], ["v1", "mybot"], ["v2", "mybot_v2"], ["Stress", "stress"]];
+const isField = (r) => r.kind === "field" && r.opponents && Object.keys(r.opponents).length;
+const isFull = (r) => isField(r) && r.max_points >= 25 && !r.overridden;
+const when = (t) => t.slice(5, 16).replace("T", " ");
+async function loadRuns() {
+  try { state.runsData = await (await fetch("/api/runs")).json(); } catch { return; }
+  const runs = state.runsData.runs;
+  if (!state.sel || !runs.some((r) => r.id === state.sel)) state.sel = (runs.find(isFull) || runs[0] || {}).id;
+  seg($("run-filter"), RUN_FILTERS, state.runFilter || "all", (f) => { state.runFilter = f; drawRail(); });
+  drawState(); drawRail(); drawDetail();
+}
+function runScore(r) {
+  if (r.kind === "stress") return r.passed ? '<span class="state-gain">safe</span>' : '<span class="state-loss">not safe</span>';
+  return r.points == null ? "" : `${(+r.points).toFixed(2)}<span class="muted"> / ${r.max_points}</span>`;
+}
+function runTitle(r) {
+  if (r.kind === "stress") return "Time bank stress test";
+  if (r.kind === "ab") return `${botName(r.bot)} vs ${botName(r.vs)}, head to head`;
+  return `${botName(r.bot)}${r.kind === "sweep" ? " sweep trial" : r.max_points >= 25 ? ", full field" : `, ${r.max_points} opponents`}`;
+}
+function drawRail() {
+  const runs = (state.runsData?.runs || []), f = state.runFilter || "all";
+  const shown = runs.filter((r) => f === "all" || (f === "stress" ? r.kind === "stress" : r.bot === f && r.kind !== "stress"));
+  const live = state.live ? `<li><button class="live" type="button" disabled><span class="t">${esc(state.live.tag)}</span>
+    <span class="s">${state.live.total ? `${state.live.done}/${state.live.total}` : ""}</span><span class="m">running now, ${esc(state.live.owner)}</span></button></li>` : "";
+  $("runlist").innerHTML = live + (shown.length ? shown.map((r) => `<li><button type="button" data-id="${r.id}" aria-current="${r.id === state.sel}">
+      <span class="t">${esc(runTitle(r))}</span><span class="s">${runScore(r)}</span>
+      <span class="m">${when(r.timestamp)} UTC, ${esc(r.owner)}${r.seeds ? `, ${r.seeds} seeds` : ""}${r.label && r.kind !== "stress" ? `, ${esc(r.label)}` : ""}${r.healthy ? "" : ', <span class="state-loss">health problem</span>'}</span></button></li>`).join("")
+    : '<li class="empty">No runs of this kind yet.</li>');
+  $("runlist").querySelectorAll("button[data-id]").forEach((b) => { b.onclick = () => { state.sel = b.dataset.id; state.base = null; drawRail(); drawDetail(); }; });
+}
+function drawState() {
+  const runs = state.runsData.runs;
+  for (const [bot, id] of [["mybot", "st-v1"], ["mybot_v2", "st-v2"]]) {
+    const r = runs.find((x) => x.bot === bot && isFull(x));
+    $(id).innerHTML = r ? `${pct(r.weighted)}<small>${(+r.points).toFixed(1)} of ${r.max_points} points, ${when(r.timestamp)}</small>` : '<small>not measured yet</small>';
+  }
+  const st = runs.find((x) => x.kind === "stress");
+  $("st-bank").innerHTML = st ? `<span class="${st.passed ? "state-gain" : "state-loss"}">${st.passed ? "Safe" : "Not safe"}</span><small>worst half ${(+st.worst_bank).toFixed(1)} of ${st.bank} s, ${when(st.timestamp)}</small>` : "<small>not checked yet</small>";
+}
+function baselineFor(r) {
+  const runs = state.runsData.runs;
+  if (state.base) return runs.find((x) => x.id === state.base);
+  const idx = runs.indexOf(r);                 // runs are newest first: older ones come after
+  return runs.slice(idx + 1).find((x) => x.bot === r.bot && isField(x) && x.kind === r.kind &&
+    Object.keys(x.opponents).filter((o) => o in r.opponents).length >= Object.keys(r.opponents).length * 0.8);
+}
+const dSpan = (d, dp = 2) => d == null || Math.abs(d) < 1e-9 ? '<span class="muted">0</span>' : `<span class="${d > 0 ? "state-gain" : "state-loss"}">${signed(d, dp)}</span>`;
+function verdict(x) {
+  const n = x.w + x.c + x.l;
+  return n && x.w === n ? '<span class="w state-gain">win</span>' : n && x.l === n ? '<span class="w state-loss">loss</span>' : n && x.c === n ? '<span class="w muted">chop</span>' : `<span class="w muted">${x.w}W ${x.c}C ${x.l}L</span>`;
+}
+function drawDetail() {
+  const box = $("detail"), runs = state.runsData?.runs || [], r = runs.find((x) => x.id === state.sel);
+  if (!r) { box.innerHTML = '<div class="empty">No runs yet. Press Re-measure both bots to measure v1 and v2 on every opponent.</div>'; return; }
+  const head = `<div class="detail-head"><p class="meta">${when(r.timestamp)} UTC, ${esc(r.owner)} with ${esc(r.tool)}${r.seeds ? `, ${r.seeds} seeds x ${r.deals} deals` : ""}</p><h2>${esc(runTitle(r))}${r.label && r.kind !== "stress" && r.kind !== "ab" ? ` <span class="muted" style="font-weight:400">${esc(r.label)}</span>` : ""}</h2></div>`;
+  if (r.kind === "stress") {
+    box.innerHTML = head + `<div class="bignum"><span class="v ${r.passed ? "state-gain" : "state-loss"}">${r.passed ? "Safe" : "Not safe"}</span>
+      <span class="d">worst half used ${(+r.worst_bank).toFixed(2)} of ${r.bank} s</span></div>
+      <p class="note">The shipped bot (agent.py) played the judge over real HTTP while busy processes loaded the CPU. A half must stay under 60% of the 8-second bank with no errors; running out means check-or-fold for the rest of the half.</p><div id="stress-rows"></div>`;
+    if (r === runs.find((x) => x.kind === "stress")) drawStressRows();
+    return;
+  }
+  if (r.kind === "ab") {
+    box.innerHTML = head + `<div class="bignum"><span class="v">${r.points}<small>vs ${r.points_vs} of ${r.max_points} field points</small></span><span class="d">head to head ${r.head_to_head.toFixed(2)} points per match</span></div>`;
+    return;
+  }
+  const base = baselineFor(r), fam = state.runsData.family_of, famName = state.runsData.family_names, w = state.runsData.weights;
+  const cands = runs.filter((x) => x !== r && isField(x) && x.timestamp <= r.timestamp).slice(0, 40);
+  const dp = base ? r.points - base.points : null;
+  const paired = base && base.tool === r.tool && base.seeds === r.seeds && base.deals === r.deals;
+  let html = head + `<div class="bignum"><span class="v">${(+r.points).toFixed(2)}<small>of ${r.max_points} points${r.weighted != null ? `, ${pct(r.weighted)} weighted` : ""}</small></span>
+    ${base ? `<span class="d">${dSpan(dp)} <span class="muted" style="font-weight:400">vs baseline</span></span>` : ""}</div>
+    <div class="basepick"><label for="base-sel">Compared with</label><select id="base-sel"><option value="">${base ? "" : "no earlier run"}</option>${cands.map((x) =>
+      `<option value="${x.id}"${base && x.id === base.id ? " selected" : ""}>${when(x.timestamp)} ${esc(runTitle(x))}, ${(+x.points).toFixed(2)} (${esc(x.owner)})</option>`).join("")}</select>
+      ${base ? `<span>${paired ? "same deals, so differences are a fair comparison" : "different deals or seeds: expect more noise in the differences"}</span>` : ""}</div>`;
+  const groups = {};
+  Object.keys(r.opponents).forEach((o) => { const f = fam[o] || "C"; (groups[f] = groups[f] || []).push(o); });
+  state.openFam = state.openFam || new Set();
+  html += `<table class="res"><thead><tr><th>Opponent</th><th class="num">Result</th><th class="num">bb per deal</th><th class="num">vs baseline</th><th class="num">Max think s</th></tr></thead><tbody>${
+    Object.keys(groups).sort().map((f) => { const p = r.families?.[f], bp = base?.families?.[f];
+      const open = state.openFam.has(f);
+      return `<tr class="fam" tabindex="0" data-fam="${f}" aria-expanded="${open}"><td><b>${f}. ${esc(famName[f] || "")}</b> <span class="muted">weight ${pct(w[f] || 0)}</span></td>
+        <td class="num"><b>${p.points} of ${p.max}</b></td><td></td><td class="num dl">${bp ? dSpan(p.points - bp.points) + " pts" : ""}</td><td></td></tr>` +
+      groups[f].sort().map((o) => { const x = r.opponents[o], b = base?.opponents?.[o];
+        return `<tr data-in="${f}"${open ? "" : " hidden"}><td style="padding-left:38px">${esc(o)}</td><td class="num">${verdict(x)}</td>
+          <td class="num">${signed(x.bb, 2)}</td><td class="num dl">${b ? dSpan(x.bb - b.bb) : ""}</td>
+          <td class="num ${x.flags ? "state-loss" : ""}">${(+x.max_s).toFixed(2)}${x.flags ? ` ${esc(x.flags)}` : ""}</td></tr>`; }).join(""); }).join("")}</tbody></table>`;
+  box.innerHTML = html;
+  $("base-sel").onchange = (e) => { state.base = e.target.value || null; drawDetail(); };
+  box.querySelectorAll("tr.fam").forEach((tr) => {
+    const toggle = () => { const f = tr.dataset.fam; state.openFam.has(f) ? state.openFam.delete(f) : state.openFam.add(f); drawDetail(); };
+    tr.onclick = toggle; tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
+  });
+}
+async function drawStressRows() {
+  const res = await fetch("/api/stress"); if (!res.ok) return;
+  const d = await res.json(), by = {};
+  d.rows.forEach((x) => { (by[x.load] = by[x.load] || []).push(x); });
+  const label = (l) => l === 0 ? "Idle machine" : `${l} busy process${l === 1 ? "" : "es"} per core`;
+  const box = $("stress-rows"); if (!box) return;
+  box.innerHTML = `<table><thead><tr><th>CPU load</th><th class="num">Worst half: bank used</th><th class="num">Errors</th><th>Result</th></tr></thead><tbody>${
+    Object.keys(by).map(Number).sort((a, b) => a - b).map((l) => { const rs = by[l], worst = Math.max(...rs.map((x) => x.bank_used));
+      const ok = rs.every((x) => x.safe), empty = rs.some((x) => x.bank_empty), ff = rs.some((x) => x.forfeit);
+      return `<tr><td>${label(l)}</td><td class="num">${worst.toFixed(2)} s (${pct(worst / d.bank)})</td><td class="num">${Math.max(...rs.map((x) => x.errors))}</td>
+        <td class="${ok ? "state-gain" : "state-loss"}">${ff ? "Forfeit" : empty ? "Ran out of time" : ok ? "Safe" : "Too close to the limit"}</td></tr>`; }).join("")}</tbody></table>`;
+}
+
+// ---------- changelog
+const LOG_FILTERS = [["All", "all"], ["v2", "mybot_v2"], ["v1", "mybot"], ["Harness", "harness"]];
+async function loadChangelog() {
+  const entries = await (await fetch("/api/changelog")).json();
+  state.log = entries;
+  seg($("log-seg"), LOG_FILTERS, state.logFilter || "all", (f) => { state.logFilter = f; drawChangelog(); });
+  drawChangelog();
+}
+function drawChangelog() {
+  const f = state.logFilter || "all";
+  const rows = (state.log || []).filter((e) => f === "all" || e.bot === f);
+  if (!rows.length) { $("log").innerHTML = '<div class="empty">Nothing logged yet. Agents add entries with <b>python tools/changelog.py add</b>.</div>'; return; }
+  const key = (e) => (e.date || "") + "|" + e.title;
+  const open = new Set([...document.querySelectorAll("#log details[open]")].map((d) => d.dataset.key));
+  $("log").innerHTML = rows.map((e) => `<details class="log-entry" data-key="${esc(key(e))}"${open.has(key(e)) ? " open" : ""}>
+      <summary><span class="log-meta">${esc(e.date || "")} <span class="who">${esc(e.author || "")}</span> ${esc(e.bot === "mybot" ? "v1" : e.bot === "mybot_v2" ? "v2" : e.bot || "")}</span>
+        <span class="log-title">${esc(e.title)}</span>
+        ${e.after ? `<span class="log-sum-result">${esc(e.after)}</span>` : ""}</summary>
+      <div class="log-body">
+        <p class="log-row"><b>What</b>${esc(e.what || "")}</p>
+        <p class="log-row"><b>Why</b>${esc(e.why || "")}</p>
+        ${e.evidence ? `<p class="log-row"><b>Evidence</b>${esc(e.evidence)}</p>` : ""}
+        ${e.after ? `<p class="log-result">${e.before ? `${esc(e.before)} <span class="muted">to</span> ` : ""}<span class="after">${esc(e.after)}</span></p>` : ""}
+      </div></details>`).join("");
+}
+function setupLogToggle() {
+  const btn = $("log-toggle"), body = $("log");
+  let hidden = false; try { hidden = localStorage.getItem("logHidden") === "1"; } catch (_) {}
+  const apply = () => { body.hidden = hidden; btn.textContent = hidden ? "Show" : "Hide"; btn.setAttribute("aria-expanded", String(!hidden)); };
+  btn.onclick = () => { hidden = !hidden; try { localStorage.setItem("logHidden", hidden ? "1" : "0"); } catch (_) {} apply(); };
+  apply();
+}
+
+state.openFam = new Set();
 (async function init() {
   const h = new URLSearchParams(location.hash.slice(1));
   if (h.has("opp")) state.opp = +h.get("opp"); if (h.has("half")) state.half = +h.get("half"); if (h.has("i")) state.idx = +h.get("i");
-  await loadTrace(); setupTraceRunner(); loadHistory(); loadParams(); setInterval(loadHistory, 15000);
-  loadScoreboard(); pollQueue(); setInterval(pollQueue, 3000); setInterval(loadScoreboard, 15000); })();
+  loadRuns(); pollQueue(); setInterval(pollQueue, 3000); setInterval(loadRuns, 30000);
+  await loadTrace(); setupTraceRunner(); loadParams();
+  setupLogToggle(); loadChangelog(); setInterval(loadChangelog, 20000); })();
 </script>
 </body>
 </html>

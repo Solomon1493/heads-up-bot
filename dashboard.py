@@ -392,6 +392,125 @@ async def api_scoreboard_run(request: Request):
     return {"status": "started", "pid": proc.pid}
 
 
+STRESS_PATH = os.path.join(DATA_DIR, "stress", "latest.json")
+
+
+@app.get("/api/stress")
+def api_stress():
+    """Latest tools/stress_v1.py result: the shipped bot's time-bank use under CPU load."""
+    if not os.path.exists(STRESS_PATH):
+        return JSONResponse({"error": "No stress test yet."}, 404)
+    with open(STRESS_PATH) as f:
+        return JSONResponse(json.load(f))
+
+
+@app.post("/api/stress/run")
+async def api_stress_run():
+    """Run tools/stress_v1.py (real judge over HTTP, 0/1/2/4 busy processes per core). Queued."""
+    global CURRENT_JOB
+    if CURRENT_JOB["running"] and CURRENT_JOB["proc"] and CURRENT_JOB["proc"].poll() is None:
+        return JSONResponse({"status": "already_running", "tag": CURRENT_JOB["tag"]}, 400)
+    cmd = [sys.executable, os.path.join(ROOT, "tools", "stress_v1.py"), "--load", "0", "1", "2", "4"]
+    log = open(os.path.join(DATA_DIR, "last_run.log"), "w")
+    proc = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=_job_env())
+    CURRENT_JOB = {"running": True, "pid": proc.pid, "tag": "stress", "start_time": time.time(), "proc": proc}
+    return {"status": "started", "pid": proc.pid}
+
+
+def _families_of(opps):
+    """{family: {points, max}} and the weighted share, from {opponent: {points}}."""
+    import families
+    out, num, den = {}, 0.0, 0.0
+    for fam, members in families.families().items():
+        rs = [opps[o]["points"] for o in members if o in opps]
+        if not rs:
+            continue
+        out[fam] = {"points": round(sum(rs), 2), "max": len(rs)}
+        w = families.FIELD_WEIGHT.get(fam, 0.0)
+        num += w * sum(rs) / len(rs)
+        den += w
+    return out, (round(num / den, 4) if den else None)
+
+
+def _all_runs():
+    """Every finished run from every tool, normalized to one shape, oldest first.
+
+    Sources: data/experiments.jsonl (tune.py run/sweep, dashboard buttons) and data/runs.jsonl
+    (fastarena field/ab, stress). Field-style runs carry per-opponent results."""
+    runs = []
+    for r in load_experiments():
+        f = r.get("field") or {}
+        opps = {o: {"w": x.get("wins", 0), "c": x.get("chops", 0), "l": x.get("losses", 0),
+                    "points": x.get("points", 0.0), "bb": x.get("mean_bb_deal", 0.0),
+                    "ci": x.get("ci_half_width"), "max_s": x.get("max_time_s", 0.0),
+                    "flags": ",".join(k for k in ("forfeit", "bank_empty") if x.get(k)) or
+                             (f"{x['errors']} err" if x.get("errors") else "")}
+                for o, x in (f.get("opponents") or {}).items()}
+        sweep = r.get("sweep_trial") is not None or str(r.get("tag", "")).startswith("sweep")
+        runs.append({"id": "t-" + str(r.get("id")), "timestamp": str(r.get("timestamp", ""))[:19],
+                     "owner": r.get("owner") or "tune.py", "kind": "sweep" if sweep else "field",
+                     "tool": "tune.py", "bot": r.get("bot", "mybot"), "label": r.get("tag") or "",
+                     "seeds": f.get("seeds"), "deals": f.get("deals"),
+                     "points": f.get("total_points"), "max_points": f.get("max_points"),
+                     "overridden": bool(r.get("params_overridden")), "opponents": opps,
+                     "healthy": (r.get("health") or {}).get("safe", True)})
+    path = os.path.join(DATA_DIR, "runs.jsonl")
+    try:
+        with open(path) as fh:
+            lines = fh.readlines()
+    except FileNotFoundError:
+        lines = []
+    for n, line in enumerate(lines):
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        base = {"id": f"r-{n}", "timestamp": r.get("timestamp", ""), "owner": r.get("owner", ""),
+                "kind": r.get("kind", "field"), "tool": "fastarena.py" if r.get("kind") != "stress" else "stress_v1.py",
+                "bot": str(r.get("bot", "")).removesuffix(".py"), "seeds": r.get("seeds"), "deals": r.get("deals"),
+                "points": r.get("points"), "max_points": r.get("max_points"), "label": "", "opponents": {},
+                "healthy": True}
+        if r.get("kind") == "stress":
+            base.update(label="time bank stress test", passed=r.get("passed"), worst_bank=r.get("worst_bank"),
+                        bank=r.get("bank"), healthy=bool(r.get("passed")))
+        elif r.get("kind") == "ab":
+            base.update(label=f"vs {r.get('vs', '')}", vs=r.get("vs"), points_vs=r.get("points_vs"),
+                        head_to_head=r.get("head_to_head"))
+        for x in r.get("rows") or []:
+            base["opponents"][x["opponent"]] = {k: x.get(k) for k in ("w", "c", "l", "points", "bb", "max_s", "flags")}
+            base["opponents"][x["opponent"]]["ci"] = None
+            if x.get("flags"):
+                base["healthy"] = False
+        runs.append(base)
+    for r in runs:
+        if r["opponents"]:
+            r["families"], r["weighted"] = _families_of(r["opponents"])
+    runs.sort(key=lambda r: r["timestamp"])
+    return runs
+
+
+@app.get("/api/runs")
+def api_runs():
+    """Every finished run (tune.py, fastarena, stress), newest first, in one shape."""
+    import families
+    fam = families.families()
+    return JSONResponse({"runs": _all_runs()[::-1][:200],
+                         "family_of": {o: k for k, v in fam.items() for o in v},
+                         "family_names": families.FAMILY_NAMES, "weights": families.FIELD_WEIGHT})
+
+
+@app.get("/api/changelog")
+def api_changelog():
+    """Every recorded iteration (changelog.json, written by tools/changelog.py), newest first."""
+    path = os.path.join(ROOT, "changelog.json")
+    try:
+        with open(path) as f:
+            entries = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        entries = []
+    return list(reversed(entries))
+
+
 @app.get("/api/last-log")
 def api_last_log():
     path = os.path.join(DATA_DIR, "last_run.log")

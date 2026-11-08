@@ -16,11 +16,32 @@ import time
 
 from collections import Counter
 from game import Action, Street
-from botlib.equity import mc_equity, preflop_features
+from botlib.equity import mc_equity, preflop_features, hole_masks, board_masks, score_masks
+from evaluator import NUM_CARDS, get_table
 
 TIME_BUDGET = 4.0          # seconds of our own compute per half
 EXPECTED_DECISIONS = 2600  # rough decisions per half, for pacing
 MIN_ITERS, MAX_ITERS = 8, 120
+# The judge charges the whole request, not just our compute: HTTP/JSON/framework overhead is
+# ~0.6 ms per request on the dev laptop, and the first 1 ms of every request is free. On a
+# slower CPU that overhead grows past the grace, invisible to us. So we time a fixed benchmark
+# (median of 15 x 40-sample equity runs; 8.9e-4 s on the dev laptop) at the start of each half
+# and every 250 hands, and charge the scaled overhead to our budget. At dev speed it adds 0.
+# Measured with tools/stress_v1.py (2026-11-08).
+BENCH_REF = 8.9e-4
+REF_OVERHEAD = 0.0006
+GRACE = 0.001
+_BENCH_HAND = ([0, 9, 14, 23, 31], [4, 18, 27])
+
+
+def _speed(memory):
+    """How many times slower than the dev laptop this machine runs right now (>= 1)."""
+    ts, rng = [], random.Random(7)
+    for _ in range(15):
+        t = time.perf_counter()
+        mc_equity(_BENCH_HAND[0], _BENCH_HAND[1], 40, rng)
+        ts.append(time.perf_counter() - t)
+    return max(1.0, sorted(ts)[7] / BENCH_REF)
 
 # ===== TUNABLE PARAMETERS =====
 # tune.py reads this dict and can perturb it during sweeps.
@@ -52,7 +73,11 @@ def new_half(config, memory):
             opp_raise=0, opp_call=0,          # opponent aggression
             we_bet_hands=0, opp_folds=0,      # how often they fold to our bets
             raised_this_hand=False, seen=(-1, 0),
+            riv_chances=0, riv_bets=0,        # river: times checked to, times they bet
+            riv_pending=False,                # we checked the river first; did they check behind?
         )
+        memory["slow"] = _speed(memory)
+        memory["spent"] = 15 * BENCH_REF * memory["slow"]    # the benchmark itself is charged
     except Exception:
         pass
 
@@ -72,7 +97,18 @@ def _track_opponent(obs, memory):
     if hand != obs.hand_index:
         count = 0
         memory["raised_this_hand"] = False
-    for a in obs.action_history[count:]:
+    hist = obs.action_history
+    for idx in range(count, len(hist)):
+        a = hist[idx]
+        if not a.is_me and a.street == Street.RIVER:
+            prior = [b for b in hist[:idx] if b.street == Street.RIVER]
+            first = not any(not b.is_me for b in prior)
+            unbet = not any(b.action in (Action.RAISE_HALF, Action.RAISE_POT) for b in prior)
+            memory["riv_pending"] = False
+            if first and unbet:                                   # checked to, nothing to call
+                memory["riv_chances"] += 1
+                if a.action in (Action.RAISE_HALF, Action.RAISE_POT):
+                    memory["riv_bets"] += 1
         if not a.is_me:
             if a.action in (Action.RAISE_HALF, Action.RAISE_POT):
                 memory["opp_raise"] += 1
@@ -87,6 +123,54 @@ def _opp_fold_rate(memory):
 
 def _opp_aggression(memory):
     return (memory["opp_raise"] + 3) / (memory["opp_raise"] + memory["opp_call"] + 10)
+
+
+def _river_bet_share(memory):
+    """How often this opponent bets the river when checked to (shrunk toward 45%)."""
+    return (memory["riv_bets"] + 0.45 * 10) / (memory["riv_chances"] + 10)
+
+
+def _range_equity_river(hole, board, top_share, rng, n=80):
+    """Chance we beat a hand from the top `top_share` of opponent holdings on this river."""
+    table = get_table()
+    known = set(hole) | set(board)
+    deck = [c for c in range(NUM_CARDS) if c not in known]
+    bm = board_masks(board)
+    me = score_masks(hole_masks(hole), bm, table)
+    opp = sorted((score_masks(hole_masks(rng.sample(deck, 5)), bm, table) for _ in range(n)), reverse=True)
+    rng_top = opp[:max(1, int(round(top_share * n)))]
+    return sum(1.0 if me > o else 0.5 if me == o else 0.0 for o in rng_top) / len(rng_top)
+
+
+def _bestk_equity(hole, board, k, rng, iters):
+    """Equity against the best of k random opponent hands, judged after each simulated runout,
+    so draws that get there count. k=1 is plain equity vs a random hand."""
+    if iters <= 0:
+        return 0.5
+    table = get_table()
+    known = set(hole) | set(board)
+    deck = [c for c in range(NUM_CARDS) if c not in known]
+    need = 5 - len(board)
+    my_hm = hole_masks(hole)
+    total = 0.0
+    for _ in range(iters):
+        draw = rng.sample(deck, need + 5 * k)
+        bm = board_masks(list(board) + draw[:need])
+        me = score_masks(my_hm, bm, table)
+        opp = max(score_masks(hole_masks(draw[need + 5 * j:need + 5 * j + 5]), bm, table) for j in range(k))
+        total += 1.0 if me > opp else 0.5 if me == opp else 0.0
+    return total / iters
+
+
+def _opp_k(obs, opp_af):
+    """How many random hands the opponent's betting is worth: one per bet or raise they made
+    this street, plus one if they are tight; a maniac's bet is worth a random hand."""
+    if opp_af > PARAMS["aggro_threshold"]:
+        return 1
+    k = 1 + max(1, obs.raises_this_street)
+    if opp_af < PARAMS["tight_threshold"]:
+        k += 1
+    return k
 
 
 def sd_plo5_preflop(hole, is_button=False):
@@ -195,10 +279,20 @@ def _strategy(obs, memory):
             return Action.FOLD
 
     # Postflop rounds (Flop, Turn, River)
-    n = _iters(memory)
+    # River facing a bet: judge our hand against the hands this opponent actually bets, not a
+    # random hand. (Leak found 2026-11-08: OOP river check-call vs a bet lost 15.8k chips in 16k
+    # hands vs the generated bots.) All cards are out, so this replaces the Monte Carlo.
+    river_bet = obs.street == Street.RIVER and obs.to_call > 0
+    k = _opp_k(obs, opp_af) if obs.to_call > 0 and not river_bet else 1
+    n = 0 if river_bet else max(MIN_ITERS if _iters(memory) else 0, _iters(memory) // k)
     t0 = time.perf_counter()
-    eq = mc_equity(obs.hole_cards, obs.board, n, memory["rng"])
-    if n:
+    if river_bet:
+        eq = _range_equity_river(obs.hole_cards, obs.board, _river_bet_share(memory), memory["rng"])
+    elif k > 1:                      # flop/turn facing a bet: their betting range, not a random hand
+        eq = _bestk_equity(obs.hole_cards, obs.board, k, memory["rng"], n)
+    else:
+        eq = mc_equity(obs.hole_cards, obs.board, n, memory["rng"])
+    if n and k == 1:
         memory["sec_per_iter"] = 0.8 * memory["sec_per_iter"] + 0.2 * (time.perf_counter() - t0) / n
 
     # Did opponent show strength this hand (raised flop or turn)?
@@ -268,11 +362,15 @@ def choose_action(obs, memory):
             memory["raised_this_hand"] = True
         if action not in obs.legal_actions:
             action = Action.CHECK_CALL
+        if obs.street == Street.RIVER and obs.to_call == 0 and action == Action.CHECK_CALL and \
+                not any(not b.is_me and b.street == Street.RIVER for b in obs.action_history):
+            memory["riv_pending"] = True    # if the hand now ends at showdown, they checked behind
     except Exception:
         action = Action.CHECK_CALL          # always legal
     try:
         memory["decisions"] = memory.get("decisions", 0) + 1
-        memory["spent"] = memory.get("spent", 0.0) + time.perf_counter() - t0
+        hidden = max(0.0, REF_OVERHEAD * memory.get("slow", 1.0) - GRACE)   # overhead the judge charges beyond the grace
+        memory["spent"] = memory.get("spent", 0.0) + time.perf_counter() - t0 + hidden
     except Exception:
         pass
     return action
@@ -286,5 +384,12 @@ def on_hand_end(result, memory):
             if not result.went_to_showdown and result.winner == "me":
                 memory["opp_folds"] += 1    # they can only fold when facing a bet
         memory["raised_this_hand"] = False
+        if memory.get("riv_pending") and result.went_to_showdown:
+            memory["riv_chances"] += 1
+        memory["riv_pending"] = False
+        if memory["hands"] % 250 == 0:
+            t0 = time.perf_counter()
+            memory["slow"] = _speed(memory)
+            memory["spent"] += time.perf_counter() - t0
     except Exception:
         pass
