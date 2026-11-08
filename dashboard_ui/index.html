@@ -38,7 +38,7 @@ button, input, select { font: inherit; color: inherit; }
 .muted { color: var(--muted); }
 
 /* header */
-header { padding: 12px 0; border-bottom: 1px solid var(--rule); }
+header { position: sticky; top: 0; z-index: 20; padding: 10px 0; background: var(--surface); border-bottom: 1px solid var(--rule); box-shadow: 0 4px 14px rgba(18,35,58,.07); }
 header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 28px; }
 header h1 { margin: 0; font-size: 18px; font-weight: 600; }
 header .spacer { flex: 1; }
@@ -62,6 +62,15 @@ header .spacer { flex: 1; }
 .stat .v { font-size: 18px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
 header .stat .k { font-size: 11px; }
 header .queue { font-size: 13px; }
+.replay-grid { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 0 24px; align-items: start; }
+@media (max-width: 1100px) { .replay-grid { grid-template-columns: 1fr; } }
+#learning-sec h3 { margin: 0 0 2px; font-size: 14px; font-weight: 600; }
+#learning-sec .sub { font-size: 12px; margin: 0 0 6px; color: var(--muted); }
+#learning-sec .legend { margin-bottom: 8px; font-size: 12px; }
+#learning-sec .multiples { grid-template-columns: 1fr; gap: 12px; }
+#learning-sec .chart .cap { font-size: 12px; margin-bottom: 2px; }
+#learning-sec .chart .cap b { font-size: 14px; }
+@media (max-width: 1100px) { #learning-sec { margin-top: 20px; } #learning-sec .multiples { grid-template-columns: repeat(2, 1fr); } }
 .replay-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 14px 0 8px; }
 .replay-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
 .replay-head .muted { font-size: 13px; }
@@ -71,9 +80,9 @@ header .queue { font-size: 13px; }
 .stateline .acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
 /* runs layout */
-.lab { display: grid; grid-template-columns: 300px 1fr; gap: 0 32px; margin-top: 18px; align-items: start; }
-@media (max-width: 900px) { .lab { grid-template-columns: 1fr; } }
-.rail { position: sticky; top: 12px; max-height: calc(100vh - 24px); display: flex; flex-direction: column; }
+.lab { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0 32px; margin-top: 18px; align-items: start; }
+@media (max-width: 900px) { .lab { grid-template-columns: minmax(0, 1fr); } #detail { overflow-x: auto; } }
+.rail { position: sticky; top: 84px; max-height: calc(100vh - 96px); display: flex; flex-direction: column; }
 @media (max-width: 900px) { .rail { position: static; max-height: 360px; } }
 .rail h2 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
 .rail .seg { margin-bottom: 8px; }
@@ -160,7 +169,8 @@ table.res tr.opp[aria-expanded="true"] td { background: var(--track); }
 .why { margin: 0; font-size: 16px; max-width: 70ch; }
 
 /* pipeline */
-.pipeline { display: grid; grid-template-columns: 1.15fr auto 1fr auto 0.9fr auto 1.15fr; gap: 0 18px; margin-top: 18px; align-items: start; }
+.pipeline { display: grid; grid-template-columns: minmax(262px, 1.2fr) auto 1fr auto 0.9fr auto 1.1fr; gap: 0 14px; margin-top: 18px; align-items: start; }
+.cards { flex-wrap: nowrap; }
 @media (max-width: 1100px) { .pipeline { grid-template-columns: 1fr; gap: 26px; } .chev { display: none; } }
 .stage h3 { margin: 0 0 14px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .stage h3 b { color: var(--ink); margin-right: 6px; }
@@ -269,6 +279,7 @@ footer { height: 60px; }
     <div class="replay-head"><h2 id="h-replay">Decision replay</h2>
     <span class="muted" id="trace-meta">Pick a run, open an opponent, and press Replay on a seed to watch every decision of that exact match.</span></div>
     <div class="status" id="replay-status" aria-live="polite"></div>
+  <div class="replay-grid"><div class="replay-main">
   <section class="hero" aria-live="polite">
     <p class="where" id="where">No trace yet</p>
     <h2 class="focal" id="focal">Run a traced match to watch the model think</h2>
@@ -287,18 +298,15 @@ footer { height: 60px; }
     </div>
   </div>
 
-  <div class="section" id="learning-sec">
-    <div class="col">
-      <h2>How it is learning this opponent</h2>
-      <p class="sub" id="learn-sub"></p>
-      <div class="legend"><span><i></i>What the bot believes</span><span><i class="prior"></i>Where it started (population prior)</span>
-        <div class="seg" id="metric-seg" role="group" aria-label="Which habit"></div></div>
-      <div class="multiples" id="multiples"></div>
-    </div>
   </div>
-
-
-
+  <aside id="learning-sec" aria-labelledby="h-learn">
+    <h3 id="h-learn">What it has learned</h3>
+    <p class="sub" id="learn-sub"></p>
+    <div class="legend"><span><i></i>Learned</span><span><i class="prior"></i>Prior</span></div>
+    <div class="seg" id="metric-seg" role="group" aria-label="Which habit"></div>
+    <div class="multiples" id="multiples"></div>
+  </aside>
+  </div>
   </section>
 
   <div class="lab">
@@ -525,7 +533,7 @@ function drawDecision(d) {
 }
 
 // ---------- learning curves
-const LW = 180, LH = 110, LL = 32, LR = 4, LT = 6, LB = 18;
+const LW = 270, LH = 96, LL = 34, LR = 4, LT = 6, LB = 16;
 const lx = (i, n) => LL + (i / Math.max(1, n - 1)) * (LW - LL - LR);
 const ly = (v) => LT + (1 - v) * (LH - LT - LB);
 const V1_LEARN = [
@@ -622,8 +630,8 @@ function renderAll() {
   const v2 = ds.length && ds[0].posterior, v1 = ds.length && !v2 && ds.some((d) => d.opp_af != null);
   $("learning-sec").hidden = !(v2 || v1);
   $("metric-seg").style.display = v2 ? "" : "none";
-  $("learn-sub").textContent = v2 ? "Each line starts at the population prior and moves toward what this opponent really does. The thin vertical line marks the decision above; click a chart to jump there."
-    : "What v1 has learned about this opponent so far, against the prior it starts from (dashed). The thin vertical line marks the decision above; click a chart to jump there.";
+  $("learn-sub").textContent = v2 ? "Moves from the population prior toward what this opponent does. Click to jump."
+    : "Against the prior it starts from. The vertical line is the decision shown; click to jump.";
   if (v2) drawLearning(); else if (v1) drawLearningV1();
   setIdx(state.idx);
 }
