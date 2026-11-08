@@ -392,6 +392,33 @@ async def api_scoreboard_run(request: Request):
     return {"status": "started", "pid": proc.pid}
 
 
+@app.post("/api/replay")
+async def api_replay(request: Request):
+    """Replay one exact match of a run (tools/replay.py) and record every decision. Queued."""
+    global CURRENT_JOB
+    body = await request.json()
+    import fastarena
+    bot, opp, seed = str(body.get("bot", "")), str(body.get("opponent", "")), str(body.get("seed", ""))
+    try:
+        fastarena.resolve(bot), fastarena.resolve(opp)
+    except SystemExit as exc:
+        return JSONResponse({"error": str(exc)}, 400)
+    if not seed or len(seed) > 120:
+        return JSONResponse({"error": "This run did not record match seeds, so it cannot be replayed exactly."}, 400)
+    try:
+        deals = max(50, min(1000, int(body.get("deals", 1000))))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "deals must be a whole number"}, 400)
+    if CURRENT_JOB["running"] and CURRENT_JOB["proc"] and CURRENT_JOB["proc"].poll() is None:
+        return JSONResponse({"status": "already_running", "tag": CURRENT_JOB["tag"]}, 400)
+    cmd = [sys.executable, os.path.join(ROOT, "tools", "replay.py"), "--bot", bot, "--opponent", opp,
+           "--seed", seed, "--deals", str(deals), "--run", str(body.get("run", ""))]
+    log = open(os.path.join(DATA_DIR, "last_run.log"), "w")
+    proc = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=_job_env())
+    CURRENT_JOB = {"running": True, "pid": proc.pid, "tag": "replay", "start_time": time.time(), "proc": proc}
+    return {"status": "started", "pid": proc.pid}
+
+
 STRESS_PATH = os.path.join(DATA_DIR, "stress", "latest.json")
 
 
@@ -477,7 +504,8 @@ def _all_runs():
             base.update(label=f"vs {r.get('vs', '')}", vs=r.get("vs"), points_vs=r.get("points_vs"),
                         head_to_head=r.get("head_to_head"))
         for x in r.get("rows") or []:
-            base["opponents"][x["opponent"]] = {k: x.get(k) for k in ("w", "c", "l", "points", "bb", "max_s", "flags")}
+            base["opponents"][x["opponent"]] = {k: x.get(k) for k in ("w", "c", "l", "points", "bb", "max_s", "flags",
+                                                                       "matches", "buckets", "worst")}
             base["opponents"][x["opponent"]]["ci"] = None
             if x.get("flags"):
                 base["healthy"] = False

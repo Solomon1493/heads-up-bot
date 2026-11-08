@@ -97,6 +97,20 @@ table.res td .w { font-size: 12px; margin-left: 6px; }
 table.res .dl { font-size: 13px; }
 .note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
 
+/* opponent drill-down */
+table.res tr.opp { cursor: pointer; }
+table.res tr.opp:hover td { background: var(--surface); }
+table.res tr.opp[aria-expanded="true"] td { background: var(--track); }
+.drill { background: var(--surface); border-radius: 12px; padding: 18px 22px 20px; margin: 18px 0 0; }
+.drill h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.drill h4 { margin: 18px 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.drill .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+@media (max-width: 1000px) { .drill .cols { grid-template-columns: 1fr; } }
+.hand { border-top: 1px solid var(--rule); padding: 8px 0; }
+.hand .top { display: flex; justify-content: space-between; gap: 10px; }
+.hand .line { color: var(--muted); font-size: 12px; }
+.btn.small { padding: 2px 10px; font-size: 13px; }
+
 /* changelog */
 .log { margin-top: 18px; }
 .log-entry { border-top: 1px solid var(--rule); }
@@ -241,19 +255,10 @@ footer { height: 60px; }
   </div>
   <div class="status" id="board-status" aria-live="polite"></div>
 
-  <div class="lab">
-    <aside class="rail" aria-labelledby="h-runs">
-      <h2 id="h-runs">Runs</h2>
-      <div class="seg" id="run-filter" role="group" aria-label="Filter runs"></div>
-      <ul class="runlist" id="runlist"></ul>
-    </aside>
-    <section id="detail" aria-live="polite"></section>
-  </div>
-
-  <details class="section" id="replay-sec">
-    <summary>Decision replay (v2 trace)</summary>
-    <p class="sub" id="trace-meta">Loading the latest trace</p>
-    <div class="seg" id="opp-seg" role="group" aria-label="Opponent"></div>
+  <section class="section" id="replay-sec" aria-labelledby="h-replay" style="margin-top:22px">
+    <h2 id="h-replay">Decision replay</h2>
+    <p class="sub" id="trace-meta">Pick a run, open an opponent, and press Replay on a seed to watch every decision of that exact match.</p>
+    <div class="status" id="replay-status" aria-live="polite"></div>
   <section class="hero" aria-live="polite">
     <p class="where" id="where">No trace yet</p>
     <h2 class="focal" id="focal">Run a traced match to watch the model think</h2>
@@ -272,7 +277,7 @@ footer { height: 60px; }
     </div>
   </div>
 
-  <div class="section two">
+  <div class="section" id="learning-sec">
     <div class="col">
       <h2>How it is learning this opponent</h2>
       <p class="sub">Each line starts at the population prior and moves toward what this opponent really does. The thin vertical line marks the decision above; click a chart to jump there.</p>
@@ -280,27 +285,21 @@ footer { height: 60px; }
         <div class="seg" id="metric-seg" role="group" aria-label="Which habit"></div></div>
       <div class="multiples" id="multiples"></div>
     </div>
-    <div class="col">
-      <h2>Results in this trace</h2>
-      <p class="sub">Big blinds won per deal, with the 95% range the judge uses. A win needs the whole range above zero. Click a row to study that opponent.</p>
-      <div class="chart" id="results"></div>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="col">
-      <h2>Run a traced match</h2>
-      <p class="sub">Plays the v2 bot against the opponents you pick and records every decision. About a minute for 300 deals.</p>
-      <div class="chips" id="trace-opps"></div>
-      <p style="margin:14px 0 0"><label>Deals per half
-        <select id="trace-deals"><option>150</option><option selected>300</option><option>600</option><option>1000</option></select></label>
-        <button class="btn primary" id="trace-run" type="button" style="margin-left:10px">Run traced match</button></p>
-      <div class="status" id="trace-status"></div>
-    </div>
   </div>
 
 
-  </details>
+
+  </section>
+
+  <div class="lab">
+    <aside class="rail" aria-labelledby="h-runs">
+      <h2 id="h-runs">Runs</h2>
+      <div class="seg" id="run-filter" role="group" aria-label="Filter runs"></div>
+      <ul class="runlist" id="runlist"></ul>
+    </aside>
+    <section id="detail" aria-live="polite"></section>
+  </div>
+
 
   <section class="section" aria-labelledby="h-log">
     <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 18px">
@@ -420,9 +419,47 @@ function belief(label, prior, live) {
     <div class="gauge"><div class="t"></div><div class="p" style="left:${prior * 100}%"></div><div class="d" style="left:${live * 100}%"></div></div>
     <div class="prior-note">started at ${pct(prior)}</div></div>`;
 }
+const METHOD = { preflop: "preflop hand strength", random: "against a random hand", bestk: "against the best of", river: "against the hands they bet on the river" };
+function drawDecisionV1(d) {
+  const m = state.trace.matches[state.opp];
+  const odds = d.to_call ? d.to_call / (d.pot + d.to_call) : 0;
+  $("where").textContent = `Hand ${d.hand + 1} of half ${state.half}, ${STREET[d.street]}, against ${m.opponent}`;
+  $("focal").textContent = ACTION_NAME[d.action];
+  const chance = d.method === "preflop" ? null : d.eq;
+  $("why").textContent = d.method === "preflop"
+    ? `Preflop strength ${d.strength.toFixed(2)} on the ${d.is_button ? "button" : "big blind"}; the thresholds decide.`
+    : d.to_call && d.req != null
+      ? `Calling costs ${d.to_call} to win ${d.pot + d.to_call}. It needs ${pct(d.req)}${Math.abs(d.req - odds) > 0.005 ? ` (pot odds ${pct(odds)}, adjusted for this opponent)` : ""}; it estimates ${pct(chance)}${d.k > 1 ? `, against the best of ${d.k} hands` : ""}.`
+      : `Estimated chance to win ${pct(chance)} ${d.k > 1 ? `against the best of ${d.k} hands` : METHOD[d.method] || ""}.`;
+  const read = d.maniac ? "Bluff-heavy: calls have paid, so it calls wider"
+    : d.opp_af > 0.48 ? "Bets often, but calling them has lost: treated as value bets" : d.opp_af < 0.38 ? "Tight: their bets mean strength" : "Ordinary";
+  $("pipeline").innerHTML = `
+    <div class="stage"><h3><b>1</b>What it sees</h3>
+      <p class="label">Its hand</p><div class="cards">${cardRow(d.hole, 5)}</div>
+      <p class="label" style="margin-top:12px">The board</p><div class="cards">${cardRow(d.board, 5)}</div>
+      <span class="pill">${d.is_button ? "In position (acts last)" : "Out of position (acts first)"}</span>
+    </div>${chev}
+    <div class="stage"><h3><b>2</b>How it reads ${esc(m.opponent)}</h3>
+      <div class="mini"><div class="row"><span>Raises, of their bets and calls</span><span class="num">${pct(d.opp_af)}</span></div></div>
+      <div class="mini"><div class="row"><span>Net from calling their big bets</span><span class="num">${signed(d.big_call_net, 0)}</span></div></div>
+      <p class="label" style="margin-top:14px">${esc(read)}</p>
+    </div>${chev}
+    <div class="stage"><h3><b>3</b>Its chance to win</h3>
+      ${chance == null ? `<div class="equity-big">${d.strength.toFixed(2)}</div><p class="label" style="margin-top:6px">preflop strength (0 to 1)</p>`
+        : `<div class="equity-big">${pct(chance)}</div><p class="label" style="margin-top:6px">${d.k > 1 ? `against the best of ${d.k} random hands` : esc(METHOD[d.method] || "")}</p>`}
+      <div class="price">${d.to_call ? `<div><b>Needs ${pct(d.req ?? odds)}</b> to call</div><div class="muted">pot ${d.pot}, call ${d.to_call}</div>`
+        : `<div><b>Checking is free</b></div><div class="muted">pot ${d.pot}</div>`}
+        ${d.iters ? `<div class="muted" style="font-size:12px;margin-top:6px">from ${d.iters} simulated deals</div>` : ""}</div>
+    </div>${chev}
+    <div class="stage"><h3><b>4</b>The choice</h3>
+      <div class="ev-row chosen"><span class="name">${ACTION_NAME[d.action]}</span><span></span><span></span></div>
+      <p class="ev-note">${d.to_call && d.req != null && chance != null ? (chance >= d.req ? "Chance at or above what the price needs." : "Chance below what the price needs.") : ""}</p>
+    </div>`;
+}
 function drawDecision(d) {
+  if (d && !d.evs) { drawDecisionV1(d); return; }
   if (!d) { $("where").textContent = state.trace ? "No decisions in this half" : "No trace yet";
-    $("focal").textContent = "Run a traced match to watch the model think"; $("why").textContent = ""; $("pipeline").innerHTML = ""; return; }
+    $("focal").textContent = "Replay a match to watch the bot think"; $("why").textContent = ""; $("pipeline").innerHTML = ""; return; }
   const m = state.trace.matches[state.opp];
   $("where").textContent = `Hand ${d.hand + 1} of half ${state.half}, ${STREET[d.street]}, against ${m.opponent}`;
   $("focal").innerHTML = `${ACTION_NAME[d.action]}<span class="ev">${signed(d.evs[d.action], 2)} chips expected</span>`;
@@ -499,32 +536,6 @@ function drawLearning() {
   }
 }
 
-// ---------- results
-function drawResults() {
-  const box = $("results"); box.replaceChildren();
-  const ms = state.trace?.matches || []; if (!ms.length) return;
-  const W = 360, rowH = 34, L = 104, R = 78, H = ms.length * rowH + 28;
-  const lo = Math.min(-1, ...ms.map((m) => m.ci[0])), hi = Math.max(1, ...ms.map((m) => m.ci[1]));
-  const xs = (v) => L + (v - lo) / (hi - lo) * (W - L - R);
-  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Big blinds per deal with 95% ranges, per opponent" });
-  el("line", { x1: xs(0), x2: xs(0), y1: 0, y2: H - 22, class: "axis0" }, svg);
-  svgText(svg, xs(0), H - 6, "0", "tick", "middle");
-  ms.forEach((m, i) => {
-    const y = 16 + i * rowH, cls = m.ci[0] > 0 ? "gain" : m.ci[1] < 0 ? "loss" : "neutral";
-    const word = cls === "gain" ? "win" : cls === "loss" ? "loss" : "chop";
-    const name = svgText(svg, L - 12, y + 4, m.opponent, "tick", "end");
-    name.style.fontSize = "12px"; if (i === state.opp) { name.style.fill = "var(--ink)"; name.style.fontWeight = 600; }
-    el("line", { x1: xs(m.ci[0]), x2: xs(m.ci[1]), y1: y, y2: y, stroke: `var(--${cls === "neutral" ? "prior" : cls})`, "stroke-width": 2 }, svg);
-    el("circle", { cx: xs(m.mean_bb_per_deal), cy: y, r: 5.5, class: `dot-${cls}`, stroke: "var(--base)", "stroke-width": 2 }, svg);
-    const v = svgText(svg, W - 2, y + 4, `${signed(m.mean_bb_per_deal, 2)} ${word}`, "tick", "end"); v.style.fontSize = "12px";
-    const hit = el("rect", { x: 0, y: y - rowH / 2, width: W, height: rowH, fill: "transparent", style: "cursor:pointer" }, svg);
-    hit.addEventListener("mousemove", (e) => showTip(e, `${m.opponent}: ${signed(m.mean_bb_per_deal, 3)} bb/deal, range ${signed(m.ci[0], 2)} to ${signed(m.ci[1], 2)} (${word}), ${m.deals} deals per half`));
-    hit.addEventListener("mouseleave", hideTip);
-    hit.addEventListener("click", () => { state.opp = i; renderAll(); });
-  });
-  box.appendChild(svg);
-}
-
 // ---------- controls
 function seg(container, items, active, onPick) {
   container.replaceChildren();
@@ -543,12 +554,14 @@ function setIdx(i) {
 }
 function renderAll() {
   const t = state.trace; if (!t) { drawDecision(null); return; }
-  seg($("opp-seg"), t.matches.map((m, i) => [m.opponent, i]), state.opp, (i) => { state.opp = i; renderAll(); });
   seg($("half-seg"), [["Half 1", 1], ["Half 2", 2]], state.half, (h) => { state.half = h; renderAll(); });
   seg($("metric-seg"), METRICS.map(([l], i) => [l, i]), state.metric, (k) => { state.metric = k; drawLearning(); setIdx(state.idx); });
   const ds = current(); $("scrub").max = Math.max(0, ds.length - 1);
   if (state.idx >= ds.length) state.idx = Math.max(0, ds.length - 1);
-  drawLearning(); drawResults(); setIdx(state.idx);
+  const v2 = ds.length && ds[0].posterior;
+  $("learning-sec").hidden = !v2;
+  if (v2) drawLearning();
+  setIdx(state.idx);
 }
 $("scrub").addEventListener("input", (e) => setIdx(+e.target.value));
 $("prev").onclick = () => setIdx(state.idx - 1);
@@ -568,47 +581,12 @@ async function loadTrace() {
   const res = await fetch("/api/trace");
   if (!res.ok) { $("trace-meta").textContent = "No trace yet"; drawDecision(null); return; }
   state.trace = await res.json();
-  const t = state.trace, when = t.created.replace(/(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d).*/, "$1-$2-$3 $4:$5 UTC");
-  $("trace-meta").textContent = `${t.bot} against ${t.matches.length} opponents, ${t.deals} deals per half, recorded ${when}`;
+  const t = state.trace, when = t.created.replace(/(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d).*/, "$1-$2-$3 $4:$5 UTC"), m0 = t.matches[0];
+  $("trace-meta").textContent = t.matches.length === 1
+    ? `${botName(t.bot)} against ${m0.opponent}, match ${m0.seed}: ${signed(m0.mean_bb_per_deal, 2)} bb per deal (${m0.verdict.replace("AGENT1_WIN", "win").replace("AGENT2_WIN", "loss").replace("CHOP", "chop")}). Replayed ${when}. Arrow keys step through decisions.`
+    : `${botName(t.bot)} against ${t.matches.length} opponents, ${t.deals} deals per half, recorded ${when}`;
   state.opp = Math.min(state.opp, t.matches.length - 1);
   renderAll();
-}
-
-// ---------- traced-match runner
-function setupTraceRunner() {
-  const known = ["equity_bot", "aggro_bot", "tight_bot", "station", "random", "half", "pot", "slow_equity_bot"];
-  const chosen = new Set((state.trace?.matches || []).map((m) => m.opponent));
-  const box = $("trace-opps");
-  known.forEach((o) => { const l = document.createElement("label");
-    const on = chosen.size ? chosen.has(o) : ["equity_bot", "aggro_bot", "tight_bot"].includes(o);
-    l.innerHTML = `<input type="checkbox" value="${o}" ${on ? "checked" : ""}><span>${o}</span>`; box.appendChild(l); });
-  $("trace-run").onclick = async () => {
-    const opps = [...box.querySelectorAll("input:checked")].map((i) => i.value), st = $("trace-status");
-    if (!opps.length) { st.className = "status err"; st.textContent = "Pick at least one opponent."; return; }
-    const res = await fetch("/api/trace/run", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ opponents: opps.join(","), deals: +$("trace-deals").value }) });
-    const data = await res.json();
-    if (!res.ok) { st.className = "status err"; st.textContent = data.status === "already_running" ?
-      "Another run is in progress. Try again when it finishes." : data.error; return; }
-    const before = state.trace?.created;
-    st.className = "status"; st.textContent = "Recording decisions..."; $("trace-run").disabled = true;
-    const poll = setInterval(async () => {
-      const s = await (await fetch("/api/status")).json();
-      if (s.running) { st.textContent = s.queued ? `Waiting for the machine: ${s.queue_holder.owner} is running ${s.queue_holder.tag || "a job"}.` : `Recording decisions, ${Math.round(s.elapsed_seconds)}s`; return; }
-      clearInterval(poll); $("trace-run").disabled = false;
-      const log = (await (await fetch("/api/last-log")).json()).log;
-      if (/raised exceptions|Traceback/.test(log)) { st.className = "status err";
-        st.textContent = "Trace failed: some decisions raised errors, so the bot would have silently checked. Details are in data/last_run.log.";
-      } else {
-        await loadTrace();
-        if (state.trace?.created === before) { st.className = "status err";
-          st.textContent = "No new trace was recorded: the run stopped before finishing (for example, the dashboard restarted). The last lines are in data/last_run.log. Press Run traced match again.";
-        } else { st.className = "status"; st.textContent = "Done. Showing the new trace."; }
-        return;
-      }
-      await loadTrace();
-    }, 2000);
-  };
 }
 
 // ---------- history and v1 params
@@ -687,7 +665,7 @@ function runScore(r) {
 function runTitle(r) {
   if (r.kind === "stress") return "Time bank stress test";
   if (r.kind === "ab") return `${botName(r.bot)} vs ${botName(r.vs)}, head to head`;
-  return `${botName(r.bot)}${r.kind === "sweep" ? " sweep trial" : r.max_points >= 25 ? ", full field" : `, ${r.max_points} opponents`}`;
+  return `${botName(r.bot)}${r.kind === "sweep" ? " sweep trial" : r.max_points >= 25 ? ", full field" : `, ${r.max_points} opponent${r.max_points === 1 ? "" : "s"}`}`;
 }
 function drawRail() {
   const runs = (state.runsData?.runs || []), f = state.runFilter || "all";
@@ -754,15 +732,57 @@ function drawDetail() {
       return `<tr class="fam" tabindex="0" data-fam="${f}" aria-expanded="${open}"><td><b>${f}. ${esc(famName[f] || "")}</b> <span class="muted">weight ${pct(w[f] || 0)}</span></td>
         <td class="num"><b>${p.points} of ${p.max}</b></td><td></td><td class="num dl">${bp ? dSpan(p.points - bp.points) + " pts" : ""}</td><td></td></tr>` +
       groups[f].sort().map((o) => { const x = r.opponents[o], b = base?.opponents?.[o];
-        return `<tr data-in="${f}"${open ? "" : " hidden"}><td style="padding-left:38px">${esc(o)}</td><td class="num">${verdict(x)}</td>
+        return `<tr class="opp" tabindex="0" data-opp="${esc(o)}" aria-expanded="${state.oppSel === o}" data-in="${f}"${open ? "" : " hidden"}><td style="padding-left:38px">${esc(o)}</td><td class="num">${verdict(x)}</td>
           <td class="num">${signed(x.bb, 2)}</td><td class="num dl">${b ? dSpan(x.bb - b.bb) : ""}</td>
           <td class="num ${x.flags ? "state-loss" : ""}">${(+x.max_s).toFixed(2)}${x.flags ? ` ${esc(x.flags)}` : ""}</td></tr>`; }).join(""); }).join("")}</tbody></table>`;
+  if (state.oppSel && r.opponents[state.oppSel]) html += drill(r, state.oppSel, base);
   box.innerHTML = html;
+  box.querySelectorAll("tr.opp").forEach((tr) => {
+    const pick = () => { state.oppSel = state.oppSel === tr.dataset.opp ? null : tr.dataset.opp; drawDetail();
+      if (state.oppSel) $("drill")?.scrollIntoView({ block: "nearest" }); };
+    tr.onclick = pick; tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
+  });
+  box.querySelectorAll("button[data-seed]").forEach((b) => { b.onclick = () => replay(r, b.dataset.seed); });
   $("base-sel").onchange = (e) => { state.base = e.target.value || null; drawDetail(); };
   box.querySelectorAll("tr.fam").forEach((tr) => {
     const toggle = () => { const f = tr.dataset.fam; state.openFam.has(f) ? state.openFam.delete(f) : state.openFam.add(f); drawDetail(); };
     tr.onclick = toggle; tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
   });
+}
+function drill(r, o, base) {
+  const x = r.opponents[o], b = base?.opponents?.[o];
+  const head = `<div class="drill" id="drill"><h3>${esc(botName(r.bot))} against ${esc(o)}: ${signed(x.bb, 2)} bb per deal ${verdict(x)}</h3>
+    ${b ? `<p class="note">Baseline ${signed(b.bb, 2)} bb per deal (${b.w}W ${b.c}C ${b.l}L).</p>` : ""}`;
+  if (!x.matches) return head + `<p class="note">This run was recorded before per-match detail existed (or by tune.py). Run the field with fastarena to see seeds, where the chips go, and replays.</p></div>`;
+  const vword = (v) => v === "AGENT1_WIN" ? '<span class="state-gain">win</span>' : v === "AGENT2_WIN" ? '<span class="state-loss">loss</span>' : '<span class="muted">chop</span>';
+  const seeds = `<h4>Each match</h4><table><thead><tr><th>Match</th><th class="num">bb per deal</th><th class="num">95% range</th><th>Result</th><th></th></tr></thead><tbody>${
+    x.matches.map((mm, i) => `<tr><td>Seed ${i + 1}</td><td class="num">${signed(mm.bb, 2)}</td><td class="num">${signed(mm.ci[0], 2)} to ${signed(mm.ci[1], 2)}</td><td>${vword(mm.verdict)}</td>
+      <td class="num"><button class="btn small" type="button" data-seed="${esc(mm.seed)}">Replay</button></td></tr>`).join("")}</tbody></table>`;
+  const bk = Object.entries(x.buckets || {}).sort((p, q) => p[1][1] - q[1][1]);
+  const totalHands = bk.reduce((a, [, v]) => a + v[0], 0) || 1;
+  const buckets = `<h4>Where the chips go (all seeds)</h4><table><thead><tr><th>Hand ended on</th><th class="num">Hands</th><th class="num">Chips</th><th class="num">Per hand</th></tr></thead><tbody>${
+    bk.map(([k, [n, c]]) => `<tr><td>${esc(k)}</td><td class="num">${n} <span class="muted">(${pct(n / totalHands)})</span></td><td class="num ${c < 0 ? "state-loss" : "state-gain"}">${signed(c, 0)}</td><td class="num">${signed(c / n, 2)}</td></tr>`).join("")}</tbody></table>`;
+  const worst = `<h4>Biggest losing hands</h4>${(x.worst || []).map((h) => `<div class="hand"><div class="top"><span>${esc(h.hole)} <span class="muted">vs</span> ${esc(h.opp_hole)} <span class="muted">on</span> ${esc(h.board || "no board")}</span>
+      <b class="state-loss">${signed(h.net, 0)}</b></div><div class="line">${esc(h.position)}, ${h.showdown ? "showdown" : "no showdown"}: ${esc(h.line)}</div></div>`).join("") || '<p class="note">No losing hands.</p>'}`;
+  return head + seeds + `<div class="cols"><div>${buckets}</div><div>${worst}</div></div></div>`;
+}
+async function replay(r, seed) {
+  const sec = $("replay-sec"), st = $("replay-status");
+  const res = await fetch("/api/replay", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bot: r.bot, opponent: state.oppSel, seed, deals: r.deals || 1000, run: r.id }) });
+  const d = await res.json();
+  if (!res.ok) { st.className = "status err"; st.textContent = d.status === "already_running" ? "Another dashboard run is in progress; try again when it finishes." : d.error; return; }
+  st.className = "status"; st.textContent = `Replaying ${botName(r.bot)} against ${state.oppSel}, ${seed}. Waits its turn if the machine is busy; usually under a minute.`;
+  sec.scrollIntoView({ block: "start" });
+  const before = state.trace?.created;
+  const poll = setInterval(async () => {
+    const s = await (await fetch("/api/status")).json();
+    if (s.running) { st.textContent = s.queued ? `Waiting for the machine: ${s.queue_holder.owner} is running ${s.queue_holder.tag}.` : `Replaying, ${Math.round(s.elapsed_seconds)}s`; return; }
+    clearInterval(poll);
+    state.opp = 0; state.idx = 0; await loadTrace();
+    if (state.trace?.created === before) { st.className = "status err"; st.textContent = "The replay did not finish. The last lines are in data/last_run.log."; }
+    else st.textContent = "";
+  }, 2000);
 }
 async function drawStressRows() {
   const res = await fetch("/api/stress"); if (!res.ok) return;
@@ -815,7 +835,7 @@ state.openFam = new Set();
   const h = new URLSearchParams(location.hash.slice(1));
   if (h.has("opp")) state.opp = +h.get("opp"); if (h.has("half")) state.half = +h.get("half"); if (h.has("i")) state.idx = +h.get("i");
   loadRuns(); pollQueue(); setInterval(pollQueue, 3000); setInterval(loadRuns, 30000);
-  await loadTrace(); setupTraceRunner(); loadParams();
+  await loadTrace(); loadParams();
   setupLogToggle(); loadChangelog(); setInterval(loadChangelog, 20000); })();
 </script>
 </body>

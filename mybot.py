@@ -61,6 +61,7 @@ DEFAULT_PARAMS = {
     "tight_call_penalty":  0.20,   # extra equity over pot odds required to call a tight bot
     "tight_probe_min_eq":  0.25,   # minimum equity to probe bet when checked to by tight bot
 }
+TRACE = None   # tools/replay.py sets a list here to record each decision; None in the tournament
 PARAMS = dict(DEFAULT_PARAMS)  # active copy; the test harness (fastarena.apply_params)
                                # overrides it in-process. The shipped bot uses the defaults.
 
@@ -260,6 +261,8 @@ def _strategy(obs, memory):
     # Preflop round
     if obs.street == Street.PREFLOP:
         s = sd_plo5_preflop(obs.hole_cards, obs.is_button)
+        if TRACE is not None:
+            memory["_why"] = {"method": "preflop", "strength": round(s, 3)}
         if obs.is_button:
             # ON THE BUTTON: We have postflop position!
             # Steal / value raise with top hands
@@ -306,6 +309,11 @@ def _strategy(obs, memory):
         eq = mc_equity(obs.hole_cards, obs.board, n, memory["rng"])
     if n and k == 1:
         memory["sec_per_iter"] = 0.8 * memory["sec_per_iter"] + 0.2 * (time.perf_counter() - t0) / n
+
+    if TRACE is not None:
+        memory["_why"] = {"method": "river" if river_bet else "bestk" if k > 1 else "random", "eq": round(eq, 4),
+                          "k": k, "iters": n, "opp_af": round(opp_af, 3), "maniac": maniac,
+                          "big_call_net": memory["big_call_net"]}
 
     # Did opponent show strength this hand (raised flop or turn)?
     opp_raised_previously = any(not a.is_me and a.action in (Action.RAISE_HALF, Action.RAISE_POT) for a in obs.action_history)
@@ -360,6 +368,8 @@ def _strategy(obs, memory):
     else:
         req_eq = pot_odds
 
+    if TRACE is not None:
+        memory.setdefault("_why", {})["req"] = round(req_eq, 4)
     if eq >= req_eq:
         return Action.CHECK_CALL
     return Action.FOLD
@@ -374,6 +384,14 @@ def choose_action(obs, memory):
             memory["raised_this_hand"] = True
         if action not in obs.legal_actions:
             action = Action.CHECK_CALL
+        if TRACE is not None:
+            from evaluator import cards_to_str
+            TRACE.append(dict(memory.pop("_why", {}), hand=obs.hand_index, street=obs.street.name,
+                              is_button=obs.is_button, hole=cards_to_str(obs.hole_cards),
+                              board=cards_to_str(obs.board), pot=obs.pot, to_call=obs.to_call,
+                              opp_af=round(_opp_aggression(memory), 3), big_call_net=memory["big_call_net"],
+                              maniac=_opp_aggression(memory) > PARAMS["aggro_threshold"] and _bluff_heavy(memory),
+                              action=action.name))
         if action == Action.CHECK_CALL and obs.street != Street.PREFLOP and \
                 obs.to_call >= 0.75 * (obs.pot - obs.to_call):
             memory["called_big"] = True

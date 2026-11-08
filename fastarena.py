@@ -239,11 +239,49 @@ def play(spec1, spec2, seed, deals, keep_logs=False, params=None):
     return res, (a1.load_seconds, a2.load_seconds)
 
 
+_ACT = {"FOLD": "fold", "CHECK_CALL": "call", "RAISE_HALF": "raise half", "RAISE_POT": "raise pot"}
+
+
+def _hand_digest(logs, worst_n=5):
+    """Where spec1's chips went: {bucket: [hands, chips]} plus its worst hands, from judge logs.
+    Buckets are (last street, showdown or not, position), the cut that found v1's leaks."""
+    buckets, hands = {}, []
+    for half_key, half_logs in logs.items():
+        me = 0 if half_key.endswith("1") else 1        # agent1 is seat 0 in half 1, seat 1 in half 2
+        for h in half_logs:
+            net = h["nets"][me]
+            street = {0: "preflop", 3: "flop", 4: "turn", 5: "river"}[len(h["board_revealed"])]
+            pos = "button" if h["button_seat"] == me else "big blind"
+            key = f"{street}, {'showdown' if h['went_to_showdown'] else 'no showdown'}, {pos}"
+            b = buckets.setdefault(key, [0, 0])
+            b[0] += 1
+            b[1] += net
+            line, cur = [], None
+            for a in h["actions"]:
+                if a["street"] != cur:
+                    cur = a["street"]
+                    line.append(cur.capitalize() + ":")
+                verb = _ACT.get(a["action"], a["action"])
+                if verb == "call" and not a.get("amount"):
+                    verb = "check"
+                line.append(("you " if a["seat"] == me else "they ") + verb + ",")
+            hands.append({"half": int(half_key[-1]), "deal": h["deal_index"], "net": net, "position": pos,
+                          "hole": " ".join(h["hole_cards"][me]), "opp_hole": " ".join(h["hole_cards"][1 - me]),
+                          "board": " ".join(h["board_revealed"]) if h.get("board_revealed") else "",
+                          "showdown": h["went_to_showdown"], "line": " ".join(line).rstrip(",")})
+    hands.sort(key=lambda x: x["net"])
+    return {"buckets": buckets, "worst": hands[:worst_n]}
+
+
 def _summary(spec1, spec2, seed, deals, params=None):
-    res, loads = play(spec1, spec2, seed, deals, params=params)
+    res, loads = play(spec1, spec2, seed, deals, keep_logs=True, params=params)
     out = {"a": spec1, "b": spec2, "seed": seed, "mean": res.mean_bb, "ci": res.ci,
            "paired": list(res.paired_bb),
            "verdict": res.verdict, "points": res.points, "load": loads}
+    try:
+        out["digest"] = _hand_digest(res.logs)
+    except Exception:                                   # a summary must never sink a measurement
+        out["digest"] = None
     for key, spec in (("agent1", spec1), ("agent2", spec2)):
         halves = res.agent_stats[key]
         out[key] = {
@@ -338,8 +376,20 @@ def field_table(bot, opponents, seeds, deals, workers):
         mt = max(r["agent1"]["max_time"] for r in rs)
         flags = ";".join(sorted({_flags(r["agent1"]) for r in rs} - {""}))
         lines.append(f"{opp:22} {w:3d} {c:3d} {l:3d} {pts:7.2f} {mean:+9.3f} {hw:13.3f} {mt:8.2f}  {flags}")
+        buckets, worst = {}, []
+        for r in rs:
+            d = r.get("digest") or {}
+            for k, (n, chips) in d.get("buckets", {}).items():
+                b = buckets.setdefault(k, [0, 0])
+                b[0] += n
+                b[1] += chips
+            worst += [dict(x, seed=r["seed"]) for x in d.get("worst", [])]
+        worst.sort(key=lambda x: x["net"])
         rows.append({"opponent": opp, "w": w, "c": c, "l": l, "points": round(pts, 3),
-                     "bb": round(mean, 3), "max_s": round(mt, 2), "flags": flags})
+                     "bb": round(mean, 3), "max_s": round(mt, 2), "flags": flags,
+                     "matches": [{"seed": r["seed"], "bb": round(r["mean"], 3), "verdict": r["verdict"],
+                                  "points": r["points"]["agent1"], "ci": [round(c_, 3) for c_ in r["ci"]]} for r in rs],
+                     "buckets": buckets, "worst": worst[:8]})
     lines.append(f"Expected points vs this field: {total_pts:.2f} of {len(opponents)}")
     field_table.last = rows
     lines += _health_lines(results)
