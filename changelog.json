@@ -253,5 +253,17 @@
     "evidence": "Paired, same deals. Also measured: 2.5 s (bank 32-45% at 2/core, but field 26.12 and swarm 61.5: rejected) and 4.0 s (field 26.81, swarm 68.0, little time saved).",
     "date": "2026-11-08 06:06 UTC",
     "commit": "5207adc"
+  },
+  {
+    "author": "Claude",
+    "bot": "harness",
+    "title": "Champ bots measured properly; v1 beats all of them",
+    "what": "Re-measured Antigravity's overnight work at 8 seeds x 1000 deals plus a fresh swarm (2200-2279). The 8 champ_* bots (committed in 3e86d7d) are held-out exam opponents. AGENTS.md: automated loops must use tools/loop.py's gate rules.",
+    "why": "The overnight optimizer kept any change whose single short run beat the best so far, ties included (355 cycles), so its 'best' (30.25 of 37) was likely luck.",
+    "before": "champ_experimental claimed best 30.25 of 37",
+    "after": "v1 34.25 of 38 (90%) vs champ_experimental 29.81 of 37 (81%); v1 vs champ_experimental 3W 5C 0L; v1 wins outright vs omaha_shark, nut_draw_engine, adaptive_exploiter (8/8), spr_bully 7/8, range_polarizer 6/8, gto_unexploitable and shortdeck_trapper 5/8 (rest chops)",
+    "evidence": "fastarena field 8 seeds and swarm --base 2200 for both bots, same deals; 0 flags; peak think v1 1.24 s, champ_experimental 3.01 s.",
+    "date": "2026-11-08 13:48 UTC",
+    "commit": "3e86d7d"
   }
 ]

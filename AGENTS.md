@@ -36,6 +36,11 @@ outside the `YOUR CODE HERE` block. The tournament uses its own copies of the fi
   once make both bots simulate less, so both results come out wrong.
 - The sweep's noise guard stays: a candidate must beat the current params by more than
   2 standard errors. Do not loosen it to `> 0`; with noise near +/-2.6 that recommends luck.
+- Automated improvement loops (any agent, any bot) go through `tools/loop.py` and its gate
+  (see GEMINI.md), or an equivalent with the same rules: 8 seeds x 1000 deals, a never-used swarm
+  per decision, and a margin above noise. Never keep a change because one short run beat the
+  best so far, and never keep ties. (2026-11-08: an overnight hill-climber did both for 355
+  cycles; its "best" bot scored 29.8 of 37 against v1's 34.3 of 38 when re-measured properly.)
 
 ## Log every iteration
 Any change to a bot, its tuned values, or the evaluation (new opponents, scoring) gets one
