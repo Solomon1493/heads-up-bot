@@ -74,7 +74,8 @@ def new_half(config, memory):
             we_bet_hands=0, opp_folds=0,      # how often they fold to our bets
             raised_this_hand=False, seen=(-1, 0),
             riv_chances=0, riv_bets=0,        # river: times checked to, times they bet
-            riv_pending=False,                # we checked the river first; did they check behind?
+            riv_pending=False,
+            called_big=False, big_calls=0, big_call_net=0.0,  # hands where we called a big bet: their net result                # we checked the river first; did they check behind?
         )
         memory["slow"] = _speed(memory)
         memory["spent"] = 15 * BENCH_REF * memory["slow"]    # the benchmark itself is charged
@@ -97,6 +98,7 @@ def _track_opponent(obs, memory):
     if hand != obs.hand_index:
         count = 0
         memory["raised_this_hand"] = False
+        memory["called_big"] = False
     hist = obs.action_history
     for idx in range(count, len(hist)):
         a = hist[idx]
@@ -162,10 +164,19 @@ def _bestk_equity(hole, board, k, rng, iters):
     return total / iters
 
 
-def _opp_k(obs, opp_af):
+def _bluff_heavy(memory):
+    """True when calling this opponent's big bets has paid: hands where we called a bet of 3/4
+    pot or more after the flop made money in total (including hands we later folded, which a
+    showdown count misses). False until the calls prove profitable.
+    Raise frequency alone cannot tell a value bettor from a maniac (found 2026-11-08:
+    rangeaware_mc rated 'aggressive' and v1 called its turn pot bets with 12% equity)."""
+    return memory["big_call_net"] > 0
+
+
+def _opp_k(obs, opp_af, maniac):
     """How many random hands the opponent's betting is worth: one per bet or raise they made
     this street, plus one if they are tight; a maniac's bet is worth a random hand."""
-    if opp_af > PARAMS["aggro_threshold"]:
+    if maniac:
         return 1
     k = 1 + max(1, obs.raises_this_street)
     if opp_af < PARAMS["tight_threshold"]:
@@ -283,7 +294,8 @@ def _strategy(obs, memory):
     # random hand. (Leak found 2026-11-08: OOP river check-call vs a bet lost 15.8k chips in 16k
     # hands vs the generated bots.) All cards are out, so this replaces the Monte Carlo.
     river_bet = obs.street == Street.RIVER and obs.to_call > 0
-    k = _opp_k(obs, opp_af) if obs.to_call > 0 and not river_bet else 1
+    maniac = opp_af > P["aggro_threshold"] and _bluff_heavy(memory)
+    k = _opp_k(obs, opp_af, maniac) if obs.to_call > 0 and not river_bet else 1
     n = 0 if river_bet else max(MIN_ITERS if _iters(memory) else 0, _iters(memory) // k)
     t0 = time.perf_counter()
     if river_bet:
@@ -338,8 +350,8 @@ def _strategy(obs, memory):
             req_eq = max(0.65, pot_odds + 0.25)
         else:
             req_eq = max(0.58, pot_odds + P["tight_call_penalty"])
-    elif opp_af > P["aggro_threshold"]:
-        # Maniac / aggressive opponent: lots of bluffs, call down wider!
+    elif maniac:
+        # Maniac: aggressive AND calling them has paid at showdown, so call down wider.
         # If pot-committed against maniac, NEVER fold if we have any decent shot!
         if is_pot_committed:
             req_eq = max(0.14, pot_odds - 0.10)
@@ -362,6 +374,9 @@ def choose_action(obs, memory):
             memory["raised_this_hand"] = True
         if action not in obs.legal_actions:
             action = Action.CHECK_CALL
+        if action == Action.CHECK_CALL and obs.street != Street.PREFLOP and \
+                obs.to_call >= 0.75 * (obs.pot - obs.to_call):
+            memory["called_big"] = True
         if obs.street == Street.RIVER and obs.to_call == 0 and action == Action.CHECK_CALL and \
                 not any(not b.is_me and b.street == Street.RIVER for b in obs.action_history):
             memory["riv_pending"] = True    # if the hand now ends at showdown, they checked behind
@@ -384,6 +399,10 @@ def on_hand_end(result, memory):
             if not result.went_to_showdown and result.winner == "me":
                 memory["opp_folds"] += 1    # they can only fold when facing a bet
         memory["raised_this_hand"] = False
+        if memory.get("called_big"):
+            memory["big_calls"] += 1
+            memory["big_call_net"] += result.my_net
+        memory["called_big"] = False
         if memory.get("riv_pending") and result.went_to_showdown:
             memory["riv_chances"] += 1
         memory["riv_pending"] = False
