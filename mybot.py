@@ -165,6 +165,21 @@ def _bestk_equity(hole, board, k, rng, iters):
     return total / iters
 
 
+def _trace_evs(obs, eq, fold_rate):
+    """Replay only: expected chips of each legal move from v1's own estimates (chance to win,
+    how often it expects a fold). v1 decides by thresholds; this is for the dashboard."""
+    evs = {}
+    if Action.FOLD in obs.legal_actions and obs.to_call:
+        evs["FOLD"] = 0.0
+    evs["CHECK_CALL"] = round(eq * (obs.pot + obs.to_call) - obs.to_call, 3)
+    for a in (Action.RAISE_HALF, Action.RAISE_POT):
+        if a in obs.legal_actions and a in obs.raise_to:
+            add = obs.raise_to[a] - obs.my_bet               # chips we put in now
+            called = obs.pot + add + (add - obs.to_call)     # pot if they call
+            evs[a.name] = round(fold_rate * obs.pot + (1 - fold_rate) * (eq * called - add), 3)
+    return evs
+
+
 def _bluff_heavy(memory):
     """True when calling this opponent's big bets has paid: hands where we called a bet of 3/4
     pot or more after the flop made money in total (including hands we later folded, which a
@@ -265,7 +280,10 @@ def _strategy(obs, memory):
     if obs.street == Street.PREFLOP:
         s = sd_plo5_preflop(obs.hole_cards, obs.is_button)
         if TRACE is not None:
-            memory["_why"] = {"method": "preflop", "strength": round(s, 3)}
+            thr = ({"Raise pot": P["pf_btn_raise"], "Complete the blind" if obs.to_call <= 1 else "Call the raise":
+                    P["pf_btn_limp"] if obs.to_call <= 1 else P["pf_btn_call_raise"]} if obs.is_button
+                   else {"Raise pot": P["pf_bb_raise"], "Call": P["pf_bb_call"]} if obs.to_call else {"Raise pot": P["pf_bb_raise"]})
+            memory["_why"] = {"method": "preflop", "strength": round(s, 3), "thr": thr}
         if obs.is_button:
             # ON THE BUTTON: We have postflop position!
             # Steal / value raise with top hands
@@ -316,7 +334,7 @@ def _strategy(obs, memory):
     if TRACE is not None:
         memory["_why"] = {"method": "river" if river_bet else "bestk" if k > 1 else "random", "eq": round(eq, 4),
                           "k": k, "iters": n, "opp_af": round(opp_af, 3), "maniac": maniac,
-                          "big_call_net": memory["big_call_net"]}
+                          "big_call_net": memory["big_call_net"], "evs": _trace_evs(obs, eq, fold_rate)}
 
     # Did opponent show strength this hand (raised flop or turn)?
     opp_raised_previously = any(not a.is_me and a.action in (Action.RAISE_HALF, Action.RAISE_POT) for a in obs.action_history)
@@ -393,6 +411,7 @@ def choose_action(obs, memory):
                               is_button=obs.is_button, hole=cards_to_str(obs.hole_cards),
                               board=cards_to_str(obs.board), pot=obs.pot, to_call=obs.to_call,
                               opp_af=round(_opp_aggression(memory), 3), big_call_net=memory["big_call_net"],
+                              fold_rate=round(_opp_fold_rate(memory), 3), riv_share=round(_river_bet_share(memory), 3),
                               maniac=_opp_aggression(memory) > PARAMS["aggro_threshold"] and _bluff_heavy(memory),
                               action=action.name))
         if action == Action.CHECK_CALL and obs.street != Street.PREFLOP and \

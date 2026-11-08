@@ -97,6 +97,15 @@ table.res td .w { font-size: 12px; margin-left: 6px; }
 table.res .dl { font-size: 13px; }
 .note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
 
+/* per-opponent score strip: dot = bb per deal, whisker = 95% range, line = zero */
+td.strip { width: 34%; min-width: 180px; padding-top: 4px; padding-bottom: 4px; }
+.sbox { position: relative; height: 18px; }
+.sbox .ax { position: absolute; top: 2px; bottom: 2px; width: 0; border-left: 1px solid var(--rule); }
+.sbox .ci { position: absolute; top: 8px; height: 2px; border-radius: 1px; }
+.sbox .pt { position: absolute; top: 5px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; }
+.sbox .gain { background: var(--gain); } .sbox .loss { background: var(--loss); } .sbox .neutral { background: var(--prior); }
+.strip-scale { color: var(--muted); font-size: 11px; display: flex; justify-content: space-between; }
+
 /* opponent drill-down */
 table.res tr.opp { cursor: pointer; }
 table.res tr.opp:hover td { background: var(--surface); }
@@ -197,7 +206,7 @@ table.res tr.opp[aria-expanded="true"] td { background: var(--track); }
 .legend { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; color: var(--muted); margin-bottom: 14px; }
 .legend i { display: inline-block; width: 18px; border-top: 2px solid var(--cobalt); vertical-align: middle; margin-right: 6px; }
 .legend i.prior { border-top: 2px dashed var(--prior); }
-.multiples { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; }
+.multiples { display: grid; grid-template-columns: repeat(4, minmax(0, 300px)); gap: 22px 36px; }
 @media (max-width: 760px) { .multiples { grid-template-columns: repeat(2, 1fr); } }
 .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
 .chart .cap { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
@@ -280,7 +289,7 @@ footer { height: 60px; }
   <div class="section" id="learning-sec">
     <div class="col">
       <h2>How it is learning this opponent</h2>
-      <p class="sub">Each line starts at the population prior and moves toward what this opponent really does. The thin vertical line marks the decision above; click a chart to jump there.</p>
+      <p class="sub" id="learn-sub"></p>
       <div class="legend"><span><i></i>What the bot believes</span><span><i class="prior"></i>Where it started (population prior)</span>
         <div class="seg" id="metric-seg" role="group" aria-label="Which habit"></div></div>
       <div class="multiples" id="multiples"></div>
@@ -420,6 +429,19 @@ function belief(label, prior, live) {
     <div class="prior-note">started at ${pct(prior)}</div></div>`;
 }
 const METHOD = { preflop: "preflop hand strength", random: "against a random hand", bestk: "against the best of", river: "against the hands they bet on the river" };
+function evBars(evs, chosen) {
+  const acts = ACTION_ORDER.filter((a) => a in evs), maxAbs = Math.max(1, ...acts.map((a) => Math.abs(evs[a])));
+  return acts.map((a) => { const v = evs[a], w = Math.abs(v) / maxAbs * 50;
+    return `<div class="ev-row${a === chosen ? " chosen" : ""}"><span class="name">${ACTION_NAME[a]}</span>
+      <div class="ev-bar"><div class="axis"></div><div class="f ${v >= 0 ? "gain" : "loss"}" style="left:${v >= 0 ? 50 : 50 - w}%;width:${Math.max(w, 0.4)}%"></div></div>
+      <span class="v">${signed(v)}</span></div>`; }).join("");
+}
+function thrBars(d) {
+  const rows = Object.entries(d.thr).map(([name, t]) => `<div class="mini"><div class="row"><span>${esc(name)}</span><span class="num">${t.toFixed(2)}</span></div>
+    <div class="bar-track"><div class="bar-fill ${d.strength > t ? "cobalt" : "neutral"}" style="left:0;width:${Math.min(1, d.strength) * 100}%"></div>
+      <div style="position:absolute;top:-4px;bottom:-4px;left:${t * 100}%;border-left:2px solid var(--ink)"></div></div></div>`).join("");
+  return `<p class="label">Its strength ${d.strength.toFixed(2)} (bar) against each threshold (line). It ${ACTION_NAME[d.action].toLowerCase()}s.</p>${rows}`;
+}
 function drawDecisionV1(d) {
   const m = state.trace.matches[state.opp];
   const odds = d.to_call ? d.to_call / (d.pot + d.to_call) : 0;
@@ -451,13 +473,13 @@ function drawDecisionV1(d) {
         : `<div><b>Checking is free</b></div><div class="muted">pot ${d.pot}</div>`}
         ${d.iters ? `<div class="muted" style="font-size:12px;margin-top:6px">from ${d.iters} simulated deals</div>` : ""}</div>
     </div>${chev}
-    <div class="stage"><h3><b>4</b>The choice</h3>
-      <div class="ev-row chosen"><span class="name">${ACTION_NAME[d.action]}</span><span></span><span></span></div>
-      <p class="ev-note">${d.to_call && d.req != null && chance != null ? (chance >= d.req ? "Chance at or above what the price needs." : "Chance below what the price needs.") : ""}</p>
+    <div class="stage"><h3><b>4</b>${d.evs ? "Expected chips for each move" : d.thr ? "Strength against its thresholds" : "The choice"}</h3>
+      ${d.evs ? evBars(d.evs, d.action) + `<p class="ev-note">Worked out from v1's own estimates (its chance to win and how often it expects a fold). v1 itself decides by thresholds, so its choice can differ from the top bar. Highlighted: what it chose.</p>`
+        : d.thr ? thrBars(d) : `<div class="ev-row chosen"><span class="name">${ACTION_NAME[d.action]}</span><span></span><span></span></div>`}
     </div>`;
 }
 function drawDecision(d) {
-  if (d && !d.evs) { drawDecisionV1(d); return; }
+  if (d && !d.posterior) { drawDecisionV1(d); return; }
   if (!d) { $("where").textContent = state.trace ? "No decisions in this half" : "No trace yet";
     $("focal").textContent = "Replay a match to watch the bot think"; $("why").textContent = ""; $("pipeline").innerHTML = ""; return; }
   const m = state.trace.matches[state.opp];
@@ -505,6 +527,44 @@ function drawDecision(d) {
 const LW = 180, LH = 110, LL = 32, LR = 4, LT = 6, LB = 18;
 const lx = (i, n) => LL + (i / Math.max(1, n - 1)) * (LW - LL - LR);
 const ly = (v) => LT + (1 - v) * (LH - LT - LB);
+const V1_LEARN = [
+  { key: "fold_rate", title: "Folds to our bets", prior: 0.40, pctv: true },
+  { key: "opp_af", title: "Raises, of their bets and calls", prior: 0.30, pctv: true },
+  { key: "riv_share", title: "Bets the river when checked to", prior: 0.45, pctv: true },
+  { key: "big_call_net", title: "Net chips from calling big bets", prior: 0, pctv: false },
+];
+function drawLearningV1() {
+  const box = $("multiples"); box.replaceChildren();
+  const ds = current().filter((d) => d.opp_af != null); if (!ds.length) return;
+  for (const m of V1_LEARN) {
+    const vals = ds.map((d) => d[m.key] ?? null); if (vals.every((v) => v == null)) continue;
+    const nums = vals.filter((v) => v != null);
+    let lo = m.pctv ? 0 : Math.min(0, ...nums), hi = m.pctv ? 1 : Math.max(0, ...nums);
+    if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+    const y = (v) => LT + (1 - (v - lo) / (hi - lo)) * (LH - LT - LB), fmt = (v) => m.pctv ? pct(v) : signed(v, 0);
+    const last = nums[nums.length - 1];
+    const wrap = document.createElement("div"); wrap.className = "chart";
+    wrap.innerHTML = `<div class="cap">${m.title} <b>${fmt(last)}</b> ${m.pctv ? `started at ${pct(m.prior)}` : "starts at 0"}</div>`;
+    const svg = el("svg", { viewBox: `0 0 ${LW} ${LH}`, role: "img", "aria-label": `${m.title}: ${fmt(last)} at the end, prior ${fmt(m.prior)}` });
+    (m.pctv ? [0, .5, 1] : [lo, 0, hi]).forEach((v) => { el("line", { x1: LL, x2: LW - LR, y1: y(v), y2: y(v), class: "grid-line" }, svg);
+      svgText(svg, LL - 5, y(v) + 3, fmt(v), "tick", "end"); });
+    svgText(svg, LL, LH - 3, "hand 1", "tick"); svgText(svg, LW - LR, LH - 3, `hand ${ds[ds.length - 1].hand + 1}`, "tick", "end");
+    el("line", { x1: LL, x2: LW - LR, y1: y(m.prior), y2: y(m.prior), class: "line-prior" }, svg);
+    const step = Math.max(1, Math.floor(ds.length / 300)); let path = "", started = false;
+    for (let i = 0; i < ds.length; i += step) { if (vals[i] == null) continue;
+      path += `${started ? "L" : "M"}${lx(i, ds.length).toFixed(1)},${y(vals[i]).toFixed(1)}`; started = true; }
+    el("path", { d: path, class: "line-live" }, svg);
+    const at = Math.min(state.idx, ds.length - 1);
+    el("line", { x1: lx(at, ds.length), x2: lx(at, ds.length), y1: LT, y2: LH - LB, class: "now-line", "data-now": 1 }, svg);
+    const hit = el("rect", { x: LL, y: LT, width: LW - LL - LR, height: LH - LT - LB, fill: "transparent", style: "cursor:pointer" }, svg);
+    const idxAt = (e) => { const r = svg.getBoundingClientRect(); const fx = ((e.clientX - r.left) / r.width * LW - LL) / (LW - LL - LR);
+      return Math.max(0, Math.min(ds.length - 1, Math.round(fx * (ds.length - 1)))); };
+    hit.addEventListener("mousemove", (e) => { const i = idxAt(e); showTip(e, `Hand ${ds[i].hand + 1}: ${vals[i] == null ? "not yet" : fmt(vals[i])}`); });
+    hit.addEventListener("mouseleave", hideTip);
+    hit.addEventListener("click", (e) => setIdx(idxAt(e)));
+    wrap.appendChild(svg); box.appendChild(wrap);
+  }
+}
 function drawLearning() {
   const box = $("multiples"); box.replaceChildren();
   const ds = current(); if (!ds.length) return;
@@ -558,9 +618,12 @@ function renderAll() {
   seg($("metric-seg"), METRICS.map(([l], i) => [l, i]), state.metric, (k) => { state.metric = k; drawLearning(); setIdx(state.idx); });
   const ds = current(); $("scrub").max = Math.max(0, ds.length - 1);
   if (state.idx >= ds.length) state.idx = Math.max(0, ds.length - 1);
-  const v2 = ds.length && ds[0].posterior;
-  $("learning-sec").hidden = !v2;
-  if (v2) drawLearning();
+  const v2 = ds.length && ds[0].posterior, v1 = ds.length && !v2 && ds.some((d) => d.opp_af != null);
+  $("learning-sec").hidden = !(v2 || v1);
+  $("metric-seg").style.display = v2 ? "" : "none";
+  $("learn-sub").textContent = v2 ? "Each line starts at the population prior and moves toward what this opponent really does. The thin vertical line marks the decision above; click a chart to jump there."
+    : "What v1 has learned about this opponent so far, against the prior it starts from (dashed). The thin vertical line marks the decision above; click a chart to jump there.";
+  if (v2) drawLearning(); else if (v1) drawLearningV1();
   setIdx(state.idx);
 }
 $("scrub").addEventListener("input", (e) => setIdx(+e.target.value));
@@ -725,16 +788,18 @@ function drawDetail() {
       ${base ? `<span>${paired ? "same deals, so differences are a fair comparison" : "different deals or seeds: expect more noise in the differences"}</span>` : ""}</div>`;
   const groups = {};
   Object.keys(r.opponents).forEach((o) => { const f = fam[o] || "C"; (groups[f] = groups[f] || []).push(o); });
+  const lim = Math.min(8, Math.max(2, ...Object.values(r.opponents).map((x) => Math.abs(x.bb) + (ciHalf(x) || 0))));
   state.openFam = state.openFam || new Set();
-  html += `<table class="res"><thead><tr><th>Opponent</th><th class="num">Result</th><th class="num">bb per deal</th><th class="num">vs baseline</th><th class="num">Max think s</th></tr></thead><tbody>${
+  html += `<table class="res"><thead><tr><th>Opponent</th><th class="num">Result</th><th class="num">bb per deal</th><th class="num">vs baseline</th><th class="num">Max think s</th><th><div class="strip-scale"><span>${signed(-lim, 0)}</span><span>bb per deal, 95% range</span><span>${signed(lim, 0)}</span></div></th></tr></thead><tbody>${
     Object.keys(groups).sort().map((f) => { const p = r.families?.[f], bp = base?.families?.[f];
       const open = state.openFam.has(f);
       return `<tr class="fam" tabindex="0" data-fam="${f}" aria-expanded="${open}"><td><b>${f}. ${esc(famName[f] || "")}</b> <span class="muted">weight ${pct(w[f] || 0)}</span></td>
-        <td class="num"><b>${p.points} of ${p.max}</b></td><td></td><td class="num dl">${bp ? dSpan(p.points - bp.points) + " pts" : ""}</td><td></td></tr>` +
+        <td class="num"><b>${p.points} of ${p.max}</b></td><td></td><td class="num dl">${bp ? dSpan(p.points - bp.points) + " pts" : ""}</td><td></td><td></td></tr>` +
       groups[f].sort().map((o) => { const x = r.opponents[o], b = base?.opponents?.[o];
         return `<tr class="opp" tabindex="0" data-opp="${esc(o)}" aria-expanded="${state.oppSel === o}" data-in="${f}"${open ? "" : " hidden"}><td style="padding-left:38px">${esc(o)}</td><td class="num">${verdict(x)}</td>
           <td class="num">${signed(x.bb, 2)}</td><td class="num dl">${b ? dSpan(x.bb - b.bb) : ""}</td>
-          <td class="num ${x.flags ? "state-loss" : ""}">${(+x.max_s).toFixed(2)}${x.flags ? ` ${esc(x.flags)}` : ""}</td></tr>`; }).join(""); }).join("")}</tbody></table>`;
+          <td class="num ${x.flags ? "state-loss" : ""}">${(+x.max_s).toFixed(2)}${x.flags ? ` ${esc(x.flags)}` : ""}</td>
+          <td class="strip">${strip(x, lim)}</td></tr>`; }).join(""); }).join("")}</tbody></table>`;
   if (state.oppSel && r.opponents[state.oppSel]) html += drill(r, state.oppSel, base);
   box.innerHTML = html;
   box.querySelectorAll("tr.opp").forEach((tr) => {
@@ -748,6 +813,21 @@ function drawDetail() {
     const toggle = () => { const f = tr.dataset.fam; state.openFam.has(f) ? state.openFam.delete(f) : state.openFam.add(f); drawDetail(); };
     tr.onclick = toggle; tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
   });
+}
+function ciHalf(x) {
+  if (x.ci != null) return x.ci;                     // tune.py stores the half-width directly
+  if (!x.matches || !x.matches.length) return null;
+  const hw = x.matches.reduce((a, m) => a + (m.ci[1] - m.ci[0]) / 2, 0) / x.matches.length;
+  return hw / Math.sqrt(x.matches.length);           // the seeds' average, pooled
+}
+function strip(x, lim) {
+  const X = (v) => (Math.max(-lim, Math.min(lim, v)) + lim) / (2 * lim) * 100, hw = ciHalf(x);
+  const lo = hw == null ? x.bb : x.bb - hw, hi = hw == null ? x.bb : x.bb + hw;
+  const cls = lo > 0 ? "gain" : hi < 0 ? "loss" : "neutral";
+  return `<div class="sbox" role="img" aria-label="${signed(x.bb, 2)} bb per deal${hw != null ? `, range ${signed(lo, 2)} to ${signed(hi, 2)}` : ""}">
+    <span class="ax" style="left:${X(0)}%"></span>
+    ${hw != null ? `<span class="ci ${cls}" style="left:${X(lo)}%;width:${X(hi) - X(lo)}%"></span>` : ""}
+    <span class="pt ${cls}" style="left:${X(x.bb)}%"></span></div>`;
 }
 function drill(r, o, base) {
   const x = r.opponents[o], b = base?.opponents?.[o];
