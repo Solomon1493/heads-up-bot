@@ -753,7 +753,7 @@ const BOT_NAME = { mybot: "v1", mybot_v2: "v2" };
 const botName = (b) => BOT_NAME[b] || b;
 const RUN_FILTERS = [["All", "all"], ["v1", "mybot"], ["v2", "mybot_v2"], ["Swarm", "swarm"], ["Stress", "stress"]];
 const isField = (r) => (r.kind === "field" || r.kind === "swarm") && r.opponents && Object.keys(r.opponents).length;
-const famOf = (o) => (o.startsWith("swarm:") ? "S" : state.runsData.family_of[o] || "C");
+const famOf = (o) => (/^(swarm|ra|barrel):/.test(o) ? "S" : state.runsData.family_of[o] || "C");
 const isFull = (r) => r.kind === "field" && isField(r) && r.max_points >= 25 && !r.overridden;
 // Every time on the page is shown in US Central time (CST/CDT); the logs store UTC.
 const CT = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "2-digit", day: "2-digit",

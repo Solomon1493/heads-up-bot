@@ -217,5 +217,41 @@
     "evidence": "Paired field, same deals, 8 seeds, 0 flags. rangeaware-only 8 seeds: +0.12 -> +0.22 bb/deal.",
     "date": "2026-11-08 04:04 UTC",
     "commit": "d97edba"
+  },
+  {
+    "author": "Claude",
+    "bot": "mybot",
+    "title": "Rejected: learn best-of-k from how often the opponent makes each bet size",
+    "what": "k = 1/f - 1, where f is how often the opponent makes this bet size on an unbet flop or turn (per size, so size tells read either way). Reverted.",
+    "why": "Swarm base 0: v1's worst styles were range-aware heavy bluffers; export showed v1 folding to half-pot bets with 37% true equity (needs 25%).",
+    "before": "Fresh swarm (base 1000, 80 styles x 2 x 1000 deals): +1.096 bb/deal, beat 71%, worst 10% +0.199",
+    "after": "+1.156, beat 70%, worst 10% +0.181: no difference beyond noise; reverted",
+    "evidence": "Training swarm (base 0, 500 deals) looked better (worst 10% -0.10 to 0.00) but did not hold on fresh styles. Slow-players got worse, heavy bluffers better.",
+    "date": "2026-11-08 04:29 UTC",
+    "commit": "6fa76b5"
+  },
+  {
+    "author": "Claude",
+    "bot": "mybot",
+    "title": "Rejected: postflop-only fold rate; value bets must beat a calling range",
+    "what": "Fix 1: 'they fold to our bets' counted only bets after the flop (it counted preflop folds). Fix 2: a value bet also needed equity above 50% against the best of 2 hands. Tested alone and together; reverted.",
+    "why": "Databricks, current v1, 120k hands: 22-31% of v1's bets when checked to had under 40% real equity; river pot bets with weak equity were folded to 1% and raised 40% (-14k chips vs checking). The fold rate read 74% vs rangeaware_mc because preflop folds counted.",
+    "before": "main: field 27.12 of 30 (8 seeds), fresh swarm 2000-2079: +1.126 bb/deal, beat 78%, worst 10% -0.033",
+    "after": "fix1: 27.00, +1.159, 78%->70%; fix1+2: 27.38, +1.016, 78%; fix2: 27.31, +1.059, 80%, worst 10% +0.026. None clears the gate (field +0.5 or swarm +0.08, nothing worse)",
+    "evidence": "Paired field and fresh swarm, same deals. Betting less into raises saves chips but gives up value against callers; points move ~+1 at most.",
+    "date": "2026-11-08 05:31 UTC",
+    "commit": "5bc154a"
+  },
+  {
+    "author": "Claude",
+    "bot": "mybot",
+    "title": "Stop simulating once a decision is clear; budget 3.25 s",
+    "what": "Equity is simulated in batches of 16 and stops when the estimate is 2.5 standard errors from every threshold the decision uses; close calls keep up to 120 samples. Per-half compute budget 4.0 -> 3.25 s.",
+    "why": "Time-bank margin: under the HTTP stress test main used 57-76% of the bank at 2 busy processes per core (bar: 60%) and emptied it at 4.",
+    "before": "main: field 27.38 of 30 (8 seeds), swarm 2100-2179 65.0 of 80 points; bank 30% idle, 48% at 1/core, 57-76% at 2/core",
+    "after": "field 26.94, swarm 67.0 (+1.56 total points, no family below -0.26); bank 22% idle, 41-45% at 1/core, 40-63% at 2/core; 4/core still empties",
+    "evidence": "Paired, same deals. Also measured: 2.5 s (bank 32-45% at 2/core, but field 26.12 and swarm 61.5: rejected) and 4.0 s (field 26.81, swarm 68.0, little time saved).",
+    "date": "2026-11-08 06:06 UTC",
+    "commit": "5207adc"
   }
 ]

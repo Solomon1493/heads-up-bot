@@ -49,7 +49,7 @@ def families(hero=None):
 
 
 def family_of(opponent):
-    if str(opponent).startswith("swarm:"):
+    if str(opponent).startswith(("swarm:", "ra:", "barrel:")):
         return "S"
     for k, v in families().items():
         if opponent in v:

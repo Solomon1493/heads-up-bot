@@ -467,7 +467,7 @@ def _families_of(opps):
     import families
     out, num, den = {}, 0.0, 0.0
     groups = dict(families.families())
-    groups["S"] = [o for o in opps if o.startswith("swarm:")]
+    groups["S"] = [o for o in opps if o.startswith(("swarm:", "ra:", "barrel:"))]
     for fam, members in groups.items():
         rs = [opps[o]["points"] for o in members if o in opps]
         if not rs:

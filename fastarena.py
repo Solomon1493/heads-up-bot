@@ -48,8 +48,9 @@ TIME_WARN_SECONDS = 4.0  # flag bots using more than half the bank (HTTP overhea
 
 
 def resolve(spec):
-    if str(spec).startswith("swarm:") and str(spec)[6:].isdigit():
-        return str(spec)                                 # built in memory by load_module
+    for pre in ("swarm:", "ra:", "barrel:"):
+        if str(spec).startswith(pre) and str(spec)[len(pre):].isdigit():
+            return str(spec)                             # built in memory by load_module
     if spec in BASELINES:
         return os.path.join(ROOT, BASELINES[spec])
     for cand in (spec, spec + ".py", os.path.join("zoo", spec + ".py")):
@@ -66,6 +67,13 @@ def zoo_specs():
 
 
 def load_module(path):
+    if str(path).startswith(("ra:", "barrel:")):         # rangeaware / barreler look-alikes
+        import types
+        from zoo import _mimic_bot
+        kind, num = str(path).split(":")
+        mod = types.ModuleType(f"_arena_{kind}_{num}")
+        mod.new_half, mod.choose_action, mod.on_hand_end, mod.STYLE = _mimic_bot.make(kind, int(num))
+        return mod
     if str(path).startswith("swarm:"):                   # a random style from zoo/_swarm_bot.py
         import types
         from zoo import _swarm_bot
@@ -445,19 +453,22 @@ def cmd_swarm(a):
     """Play the bot against --n random styles (swarm:base .. swarm:base+n-1), one match each.
     Scores robustness: average bb per deal, share beaten, and the worst 10% of styles."""
     from tools.runlock import log_run
-    from zoo import _swarm_bot
-    opps = [f"swarm:{a.base + i}" for i in range(a.n)]
+    from zoo import _swarm_bot, _mimic_bot
+    opps = [f"{a.family}:{a.base + i}" for i in range(a.n)]
     with _queued(f"swarm {os.path.basename(a.bot)} x{a.n}"):
         pts, text = field_table(a.bot, opps, a.seeds, a.deals, a.workers)
     rows = field_table.last
     for r in rows:
-        st = _swarm_bot.draw_style(int(r["opponent"][6:]))
-        r["style"], r["describe"] = st, _swarm_bot.describe(st)
+        kind, num = r["opponent"].split(":")
+        st = (_swarm_bot.draw_style(int(num)) if kind == "swarm"
+              else _mimic_bot.draw_ra(int(num)) if kind == "ra" else _mimic_bot.draw_barrel(int(num)))
+        r["style"] = st
+        r["describe"] = _swarm_bot.describe(st) if kind == "swarm" else _mimic_bot.describe(st)
     bbs = sorted(r["bb"] for r in rows)
     worst = bbs[:max(1, len(bbs) // 10)]
     summary = {"mean_bb": round(sum(bbs) / len(bbs), 3), "beaten": sum(r["w"] for r in rows) / (len(rows) * a.seeds),
                "lost": sum(r["l"] for r in rows) / (len(rows) * a.seeds), "worst10_bb": round(sum(worst) / len(worst), 3)}
-    print(f"{a.bot} vs {a.n} random styles (base {a.base}, {a.deals} deals per half):")
+    print(f"{a.bot} vs {a.n} {a.family} opponents (base {a.base}, {a.deals} deals per half):")
     print(f"  average {summary['mean_bb']:+.3f} bb/deal, beat {summary['beaten']:.0%}, lost to {summary['lost']:.0%}, "
           f"worst 10% average {summary['worst10_bb']:+.3f} bb/deal, points {pts:.1f} of {a.n}")
     print("  worst styles:")
@@ -466,7 +477,7 @@ def cmd_swarm(a):
     if a.verbose:
         print(text)
     from tools.runlock import code_hash
-    log_run({"kind": "swarm", "bot": os.path.basename(a.bot), "seeds": a.seeds, "code": code_hash(resolve(a.bot)), "deals": a.deals, "base": a.base,
+    log_run({"kind": "swarm", "family": a.family, "bot": os.path.basename(a.bot), "seeds": a.seeds, "code": code_hash(resolve(a.bot)), "deals": a.deals, "base": a.base,
              "points": round(pts, 2), "max_points": a.n, "summary": summary, "rows": rows})
 
 
@@ -530,6 +541,8 @@ def main(argv=None):
     sw.add_argument("--base", type=int, default=0, help="first style seed; change it for never-seen opponents")
     sw.add_argument("--verbose", action="store_true", help="also print every opponent")
     sw.add_argument("--seeds", type=int, default=1, help="matches per style (more = less noise per style)")
+    sw.add_argument("--family", default="swarm", choices=["swarm", "ra", "barrel"],
+                    help="swarm = random styles; ra / barrel = rangeaware / barreler look-alikes")
     sw.set_defaults(fn=cmd_swarm, deals=500)
 
     t = sub.add_parser("tournament", parents=[common], help="round robin with tournament scoring")
