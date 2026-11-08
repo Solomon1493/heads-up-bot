@@ -20,8 +20,12 @@ Before every command, set your name so the dashboard shows your runs:
 
        .venv/bin/python tools/loop.py leaks --worst 5
 
-   Read the first numbered line. It says what v1 does wrong (calls too much, or folds
-   too much), what it cost, and which settings move it.
+   Read the first numbered line under "Leaks you can work on". It says what v1 does wrong
+   (calls too much, or folds too much), what it cost, and which settings move it.
+   The list under "Leaks NO setting can fix" is for the human: copy those lines into your
+   report, and never try to fix them with settings.
+   (When the leak sheet comes from Databricks it covers every opponent and is the best
+   guide. If it says no Databricks sheet exists, ask the human to refresh it.)
 
 3. **Pick ONE setting from that line and move it a small step: 0.02 to 0.05.**
    - "fold less": make v1 call more. Lower `tight_call_penalty`, or raise `aggro_margin`.

@@ -162,7 +162,40 @@ def _latest_swarm_worst(n):
     return [r["opponent"] for r in sorted(sw[-1]["rows"], key=lambda r: r["bb"])[:n]]
 
 
+def _sheet():
+    """The Databricks leak sheet, if it was built for the current code."""
+    import hashlib
+    path = os.path.join(ROOT, "data", "leaks", "latest.json")
+    try:
+        doc = json.load(open(path))
+    except (FileNotFoundError, ValueError):
+        return None
+    now = hashlib.sha256(open(os.path.join(ROOT, "mybot.py"), "rb").read()).hexdigest()[:8]
+    return doc if doc.get("version") == now else None
+
+
 def cmd_leaks(a):
+    doc = None if (a.local or a.opponents) else _sheet()
+    if doc:
+        print(f"Leak sheet from Databricks: {doc['hands']} hands of this exact v1 against {doc['opponents']} opponents "
+              f"(built {doc['generated']} UTC).\n")
+        tunable = [x for x in doc["leaks"] if not x["structural"]][:5]
+        structural = [x for x in doc["leaks"] if x["structural"]][:4]
+        print("Leaks you can work on (a setting moves them):")
+        for i, x in enumerate(tunable, 1):
+            print(f"  {i}. {x['title']}. Cost {x['chips']} chips. Fix: {x.get('fix', '')}.")
+            print(f"     Settings that move this: {', '.join(x['levers'])}")
+        if not tunable:
+            print("  none")
+        print("\nLeaks NO setting can fix (do not try; tell the human, they need new logic):")
+        for x in structural:
+            print(f"  - {x['title']}. Cost {x['chips']} chips.")
+        if not structural:
+            print("  none")
+        print("\nNext: pick ONE setting from the first leak above and a small step (0.02 to 0.05), then: tools/loop.py try name=value")
+        return
+    if not a.local and not a.opponents:
+        print("(No Databricks leak sheet for the current code; using a quick local analysis instead.)\n")
     opps = a.opponents.split(",") if a.opponents else _latest_swarm_worst(a.worst)
     print(f"Exporting v1 against {', '.join(opps)} ({a.seeds} seeds)...", flush=True)
     env = dict(os.environ, RUN_OWNER=_owner())
@@ -323,6 +356,7 @@ def main(argv=None):
     lk.add_argument("--worst", type=int, default=5, help="the N worst swarm styles from the latest swarm run")
     lk.add_argument("--opponents", help="or name opponents, comma-separated")
     lk.add_argument("--seeds", type=int, default=2)
+    lk.add_argument("--local", action="store_true", help="ignore the Databricks sheet; analyse locally")
     lk.set_defaults(fn=cmd_leaks)
     t = sub.add_parser("try")
     t.add_argument("settings", nargs="+", help="name=value ...")

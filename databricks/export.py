@@ -88,6 +88,11 @@ def _export_match(job):
         "hero_errors": sum(s.errors for s in stats["agent1"]),
         "hero_forfeit": any(s.forfeited for s in stats["agent1"]),
     }
+    if str(opp).startswith("swarm:"):                # random style: record what it is
+        from zoo import _swarm_bot
+        st = _swarm_bot.draw_style(int(opp[6:]))
+        match.update(opponent_style=_swarm_bot.describe(st), opp_k=st["k"], opp_bluff=st["bluff"],
+                     opp_trap=st["trap"], opp_size_tell=st["value_size"] != st["bluff_size"])
     hands, decisions, mismatches = [], [], 0
     for half_key, logs in res.logs.items():
         half = int(half_key[-1])
@@ -129,6 +134,8 @@ def _export_match(job):
                     "stack_before": STACK - contrib[s], "raises_before": raises,
                     "pot_odds": round(to_call / (pot_before + to_call), 4) if to_call else 0.0,
                     "hindsight_equity": None if eq_cache[key] is None else round(eq_cache[key], 4),
+                    "bet_faced": None if not to_call else ("pot" if to_call >= 0.75 * (pot_before - to_call) else "half"),
+                    **_texture(board[:STREET_BOARD[street]]),
                 })
                 contrib[s] += a["amount"]
                 street_tot[s] += a["amount"]
@@ -153,6 +160,22 @@ def _export_match(job):
                 "n_actions": len(h["actions"]),
             })
     return match, hands, decisions, mismatches
+
+
+def _texture(cards):
+    """Board texture as the leak queries slice it: paired, flush-heavy, connected."""
+    if not cards:
+        return {"board_paired": None, "board_suited": None, "board_connected": None}
+    ranks = sorted({c >> 2 for c in cards})
+    suits = [c & 3 for c in cards]
+    run, best = 1, 1
+    for a, b in zip(ranks, ranks[1:]):
+        run = run + 1 if b - a == 1 else 1
+        best = max(best, run)
+    if 8 in ranks and 0 in ranks:                   # short deck: A-6 connect
+        best = max(best, 2)
+    return {"board_paired": len(ranks) < len(cards), "board_suited": max(suits.count(x) for x in set(suits)),
+            "board_connected": best >= 3}
 
 
 def _run_id(hero):
