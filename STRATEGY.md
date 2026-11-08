@@ -90,7 +90,8 @@ the same simulations), so two settings are compared on identical deals and simul
 is computed deal by deal.
 
 ## Changes
-(date, what changed, the measurement that justified it)
+(date, what changed, the measurement that justified it). From 2026-11-08 the per-iteration
+record is `changelog.json` (dashboard "Changelog"); this section keeps design-level changes.
 
 - **2026-11-07: bluff share is predicted from aggression, not measured at showdowns.**
   Showdowns are censored by our own folds: `equity_bot` bluffs 13% of its raises overall but

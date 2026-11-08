@@ -96,6 +96,17 @@ def _snapshot_code(bot="mybot"):
     return h, dst
 
 
+_FROZEN = {}
+
+
+def _frozen(bot):
+    """Path of the bot's code as it was when this process first used it (one per process)."""
+    if bot not in _FROZEN:
+        path = _bot_path(bot)
+        _FROZEN[bot] = _snapshot_code(bot)[1] if os.path.exists(path) else bot
+    return _FROZEN[bot]
+
+
 def _read_bot_source(bot="mybot"):
     with open(_bot_path(bot), "r") as f:
         return f.read()
@@ -164,8 +175,11 @@ def run_field_subset(bot="mybot", opponents=None, seeds=2, deals=1000, workers=N
     if opponents is None:
         opponents = [o for o in fastarena.zoo_specs() if o != bot]
 
-    jobs = [(bot, opp, f"{seed_prefix}-{opp}-{s}", deals, params) for opp in opponents for s in range(seeds)]
+    spec = _frozen(bot)        # play a frozen copy: edits during a run cannot leak into it
+    jobs = [(spec, opp, f"{seed_prefix}-{opp}-{s}", deals, params) for opp in opponents for s in range(seeds)]
     results = fastarena.run_many(jobs, min(workers, len(jobs)))
+    for r in results:
+        r["a"] = bot
 
     # Parse into structured output
     opponent_results = {}

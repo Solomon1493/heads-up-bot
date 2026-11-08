@@ -118,7 +118,8 @@ def _export_match(job):
                     t = trace[t_i]; t_i += 1
                     model = {"model_equity": t.get("equity_vs_range"), "model_equity_random": t.get("equity_vs_random"),
                              "model_range_top": t.get("range_top"), "model_iters": t.get("iters"),
-                             "model_p_fold": t.get("posterior", {}).get(street, [None])[0]}
+                             "model_p_fold": t.get("posterior", {}).get(street, [None])[0],
+                             "model_action": t.get("action"), "model_street": t.get("street")}
                 decisions.append({**model, 
                     "run_id": run_id, "match_id": match_id, "hand_id": hand_id,
                     "hero": hero, "opponent": opp, "half": half, "deal_index": h["deal_index"],
@@ -188,7 +189,9 @@ def main(argv=None):
     mismatches = 0
     files = {k: open(os.path.join(out, f"{k}.jsonl"), "w") for k in counts}
     try:
-        with ProcessPoolExecutor(max_workers=min(a.workers, len(jobs))) as ex:
+        from tools.runlock import run_lock
+        with run_lock(owner=os.environ.get("RUN_OWNER", "export.py (terminal)"), tag=f"export {a.hero}"), \
+             ProcessPoolExecutor(max_workers=min(a.workers, len(jobs))) as ex:
             for match, hands, decisions, mm in ex.map(_export_match, jobs):
                 mismatches += mm
                 for name, rows in (("matches", [match]), ("hands", hands), ("decisions", decisions)):

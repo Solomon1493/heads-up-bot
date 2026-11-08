@@ -37,6 +37,12 @@ outside the `YOUR CODE HERE` block. The tournament uses its own copies of the fi
 - The sweep's noise guard stays: a candidate must beat the current params by more than
   2 standard errors. Do not loosen it to `> 0`; with noise near +/-2.6 that recommends luck.
 
+## Log every iteration
+Any change to a bot, its tuned values, or the evaluation (new opponents, scoring) gets one
+changelog entry, shown on the dashboard: what changed, why (the evidence that prompted it),
+and the measured result before and after.
+`python tools/changelog.py add --author <you> --bot <mybot|mybot_v2|harness> --title ... --what ... --why ... --before ... --after ... --evidence ...`
+
 ## Reporting results
 - Report results on deals the change was not tuned on: `python fastarena.py field mybot --seeds 4`.
 - Give the win / chop / loss counts. Say "win" only when every seed won.

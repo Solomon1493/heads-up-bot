@@ -75,6 +75,7 @@ def new_half(config, memory):
             we_bet_hands=0, opp_folds=0,      # how often they fold to our bets
             raised_this_hand=False, seen=(-1, 0),
             riv_chances=0, riv_bets=0,        # river: times checked to, times they bet
+            lead_chances={}, lead_bets={},    # flop/turn: unbet streets they acted on first; bets by size
             riv_pending=False,
             called_big=False, big_calls=0, big_call_net=0.0,  # hands where we called a big bet: their net result                # we checked the river first; did they check behind?
         )
@@ -103,15 +104,22 @@ def _track_opponent(obs, memory):
     hist = obs.action_history
     for idx in range(count, len(hist)):
         a = hist[idx]
-        if not a.is_me and a.street == Street.RIVER:
-            prior = [b for b in hist[:idx] if b.street == Street.RIVER]
+        if not a.is_me and a.street != Street.PREFLOP:
+            prior = [b for b in hist[:idx] if b.street == a.street]
             first = not any(not b.is_me for b in prior)
             unbet = not any(b.action in (Action.RAISE_HALF, Action.RAISE_POT) for b in prior)
-            memory["riv_pending"] = False
-            if first and unbet:                                   # checked to, nothing to call
-                memory["riv_chances"] += 1
+            if a.street == Street.RIVER:
+                memory["riv_pending"] = False
+                if first and unbet:                               # checked to, nothing to call
+                    memory["riv_chances"] += 1
+                    if a.action in (Action.RAISE_HALF, Action.RAISE_POT):
+                        memory["riv_bets"] += 1
+            elif first and unbet:
+                st = a.street.name
+                memory["lead_chances"][st] = memory["lead_chances"].get(st, 0) + 1
                 if a.action in (Action.RAISE_HALF, Action.RAISE_POT):
-                    memory["riv_bets"] += 1
+                    key = f"{st}:{a.action.name}"
+                    memory["lead_bets"][key] = memory["lead_bets"].get(key, 0) + 1
         if not a.is_me:
             if a.action in (Action.RAISE_HALF, Action.RAISE_POT):
                 memory["opp_raise"] += 1
@@ -189,18 +197,21 @@ def _bluff_heavy(memory):
     return memory["big_call_net"] > 0
 
 
-def _opp_k(obs, opp_af, maniac):
-    """How many random hands the opponent's betting is worth: one per bet or raise they made
-    this street, one more if the bet is pot-sized, one more if they are tight; a maniac's bet
-    is worth a random hand."""
+def _opp_k(obs, memory, maniac):
+    """How many random hands the opponent's bet is worth, learned from how often they make
+    this bet: if they bet this size on f of the flops (or turns) they could, the bet holds
+    roughly their top f of hands, which is the best of k = 1/f - 1 random hands. Per size, so
+    a size tell (bluff pot, value half, or the reverse) is read either way. Starts at k = 2.
+    Each further raise this street adds one; a maniac's bet is worth a random hand."""
     if maniac:
         return 1
-    k = 1 + max(1, obs.raises_this_street)
-    if obs.to_call >= 0.75 * (obs.pot - obs.to_call):    # a pot-sized bet shows more strength than half pot
-        k += 1
-    if opp_af < PARAMS["tight_threshold"]:
-        k += 1
-    return k
+    st = obs.street.name
+    last = next((a.action.name for a in reversed(obs.action_history)
+                 if not a.is_me and a.street == obs.street and a.action in (Action.RAISE_HALF, Action.RAISE_POT)),
+                "RAISE_POT")
+    f = (memory["lead_bets"].get(f"{st}:{last}", 0) + 10 / 3) / (memory["lead_chances"].get(st, 0) + 10)
+    k = min(4, max(1, round(1 / f - 1)))
+    return k + max(0, obs.raises_this_street - 1)
 
 
 def sd_plo5_preflop(hole, is_button=False):
@@ -319,7 +330,7 @@ def _strategy(obs, memory):
     # hands vs the generated bots.) All cards are out, so this replaces the Monte Carlo.
     river_bet = obs.street == Street.RIVER and obs.to_call > 0
     maniac = opp_af > P["aggro_threshold"] and _bluff_heavy(memory)
-    k = _opp_k(obs, opp_af, maniac) if obs.to_call > 0 and not river_bet else 1
+    k = _opp_k(obs, memory, maniac) if obs.to_call > 0 and not river_bet else 1
     n = 0 if river_bet else max(MIN_ITERS if _iters(memory) else 0, _iters(memory) // k)
     t0 = time.perf_counter()
     if river_bet:
